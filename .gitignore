@@ -1,0 +1,8 @@
+.env
+run_state.json
+audit_log.jsonl
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+.DS_Store

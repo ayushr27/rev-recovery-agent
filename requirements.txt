@@ -1,0 +1,9 @@
+python-dotenv
+groq
+razorpay
+fastapi
+uvicorn
+pytest
+
+# Only needed if LLM_PROVIDER=gemini in .env:
+# google-generativeai
