@@ -1,6 +1,7 @@
 .env
 run_state.json
 audit_log.jsonl
+audit_log.injected.jsonl
 metrics.json
 node_modules/
 __pycache__/

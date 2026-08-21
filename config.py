@@ -23,6 +23,21 @@ DEFAULT_COOLING_OFF_HOURS = 24
 # amount require additional-factor authentication and cannot be silently reattempted.
 AFA_THRESHOLD_PAISE = 1_500_000  # ₹15,000
 
+# error_reason values that are explicit, machine-readable proof the instrument is dead.
+# The gate re-derives dead-instrument evidence from these, independently of whatever the
+# classifier concluded. Three things about this list:
+#
+#   1. It DELIBERATELY duplicates the dead_instrument entries in core/diagnose.py's
+#      REASON_RULES. Do not replace it with an import. The regression it exists to catch
+#      is someone editing REASON_RULES — importing that table would delete the safety
+#      check at the same moment the mistake is made. A drift test in tests/test_gate.py
+#      keeps the two in step deliberately rather than accidentally.
+#   2. It is a domain fact, not a tuning dial. Widening it is a design decision.
+#   3. It covers explicit reason codes ONLY, never free text. Evidence that exists only
+#      in error_description is invisible here, by design — reading prose is the LLM
+#      tail's job, and doing it badly in the safety layer would be worse than not at all.
+HARD_DEAD_INSTRUMENT_REASONS = frozenset({"card_expired", "card_blocked", "invalid_card"})
+
 # Simulated execution. Outcomes are derived from a hash of the payment id rather than
 # a running rng, so the recovered figure is identical no matter what order the batch is
 # processed in — and stays identical across runs.
@@ -44,5 +59,9 @@ EXPLAIN_WITH_LLM = True
 RUN_STATE_PATH = "run_state.json"
 AUDIT_LOG_PATH = "audit_log.jsonl"
 METRICS_PATH = "metrics.json"  # written each run; the UI reads it
+
+# Fault-injected runs write here instead, so a demonstration can never overwrite the
+# honest trail the UI pairs with metrics.json.
+INJECTED_AUDIT_LOG_PATH = "audit_log.injected.jsonl"
 LLM_CACHE_PATH = "llm_cache.json"
 FIXTURES_PATH = "fixtures/failed_payments.json"

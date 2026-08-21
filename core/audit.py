@@ -23,8 +23,14 @@ def _path(path=None):
     return Path(path or _DEFAULT_PATH)
 
 
-def entry(record, category, source, intervention, gate_result, execution_result, rationale, timestamp):
-    """Assemble one audit object. Field order follows the decision path."""
+def entry(record, category, source, intervention, gate_result, execution_result, rationale,
+          timestamp, injected_fault=None):
+    """Assemble one audit object. Field order follows the decision path.
+
+    `injected_fault` is null on every honest row and always present, so a single line
+    read in isolation declares whether its run was tampered with. On an injected row it
+    carries what the agent genuinely concluded alongside what was forced over it.
+    """
     return {
         "payment_id": record["id"],
         "payment_type": record.get("payment_type"),
@@ -36,6 +42,8 @@ def entry(record, category, source, intervention, gate_result, execution_result,
         ),
         "category": category,
         "source": source,
+        # Null on every honest row. Injection happens at diagnosis, so it sits here.
+        "injected_fault": injected_fault,
         "intervention": intervention.action,
         # What was actually fired, which is not always what was planned — the gate can
         # convert a retry into an authentication link, or refuse it outright. Metrics

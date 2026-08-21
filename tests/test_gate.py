@@ -7,8 +7,10 @@ against an intervention the agent would never actually produce.
 
 import copy
 
+import pytest
+
 import config
-from core import decide, gate
+from core import decide, diagnose, gate
 
 NOW = 1_755_000_000
 HOUR = 3600
@@ -82,6 +84,69 @@ def test_dead_instrument_retry_refused_even_with_budget_to_spare():
     forced_retry = decide.Intervention(decide.RETRY, 2, True)
     result = gate.evaluate(record(), "dead_instrument", forced_retry, state, NOW)
     assert result.reason == gate.DEAD_INSTRUMENT_NEVER_RETRIED
+
+
+# --- dead instrument: evidence in the record, independent of the diagnosis -----
+
+
+@pytest.mark.parametrize("reason", sorted(config.HARD_DEAD_INSTRUMENT_REASONS))
+def test_hard_evidence_in_the_record_refuses_a_retry(reason):
+    result = run(record(error_reason=reason), "bank_downtime")
+    assert result.decision == gate.REFUSE
+    assert result.reason == gate.DEAD_INSTRUMENT_EVIDENCE_IN_RECORD
+
+
+def test_evidence_rule_holds_whatever_the_diagnosis_says():
+    # The point of the rule. Rule 1 trusts the category and so cannot catch this; the
+    # record says the card is invalid no matter what it was labelled.
+    for wrong_label in ("bank_downtime", "insufficient_funds"):
+        result = run(record(error_reason="invalid_card"), wrong_label)
+        assert result.reason == gate.DEAD_INSTRUMENT_EVIDENCE_IN_RECORD, wrong_label
+
+
+def test_evidence_rule_is_an_invariant_not_a_quota():
+    # Fresh state, no attempts used, full budget — none of that makes it permissible.
+    state = gate.new_state()
+    state["global_actions"] = 0
+    result = run(record(error_reason="card_expired", retry_count=0), "bank_downtime", state)
+    assert result.decision == gate.REFUSE
+    assert result.reason == gate.DEAD_INSTRUMENT_EVIDENCE_IN_RECORD
+
+
+def test_evidence_rule_does_not_block_serving_the_customer():
+    # Refusing the retry must not also refuse the payment link that fixes the problem.
+    result = run(record(error_reason="card_expired"), "dead_instrument")
+    assert result.allowed
+    assert result.action == decide.SEND_LINK
+
+
+def test_evidence_check_cannot_see_prose_only_evidence():
+    # The documented limit, asserted so it cannot quietly change. This record is a dead
+    # instrument, but only its description says so — and the gate does not read prose.
+    # A misdiagnosis here WILL be retried. That residual risk is measured by
+    # report/metrics.py's false_intervention count and scripts/eval_llm.py, not prevented.
+    prose_only = record(
+        error_reason="authentication_failed",
+        error_description="The card is no longer valid and has been permanently deactivated.",
+    )
+    result = run(prose_only, "bank_downtime")
+    assert result.allowed
+    assert result.action == decide.RETRY
+
+
+def test_missing_or_unknown_error_reason_does_not_raise():
+    assert run(record(), "bank_downtime").allowed
+    assert run(record(error_reason=None), "bank_downtime").allowed
+    assert run(record(error_reason="something_new"), "bank_downtime").allowed
+
+
+def test_evidence_reasons_have_not_drifted_from_the_rules_table():
+    # config.HARD_DEAD_INSTRUMENT_REASONS deliberately duplicates diagnose.REASON_RULES
+    # rather than importing it, so that editing the classifier cannot silently delete the
+    # safety check. This test is what keeps the two in step on purpose instead of by
+    # accident: if either side changes, it fails and forces a conscious decision.
+    for reason in config.HARD_DEAD_INSTRUMENT_REASONS:
+        assert diagnose.REASON_RULES.get(reason) == "dead_instrument", reason
 
 
 # --- retry cap ----------------------------------------------------------------

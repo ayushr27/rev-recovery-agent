@@ -31,6 +31,14 @@ def _rupees(paise):
 
 def report(entries, ground_truth):
     """Compute the batch report. `entries` are audit rows; `ground_truth` is eval-only."""
+    # A fault-injected run is a demonstration, never a measurement. Refusing here rather
+    # than relying on the caller means no future change to run_batch can quietly produce
+    # a scored report from tampered input.
+    if any(entry.get("injected_fault") for entry in entries):
+        raise ValueError(
+            "refusing to score a fault-injected run: these entries carry a forced "
+            "diagnosis and any metric derived from them would be meaningless"
+        )
 
     def truth(entry):
         return ground_truth[entry["payment_id"]]

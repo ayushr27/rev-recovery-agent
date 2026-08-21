@@ -34,12 +34,16 @@ def save_state(state):
 
 
 def process(record, state, now, use_real_api=False, use_llm_explain=None, use_llm_diagnose=True,
-            persist=lambda _state: None):
+            persist=lambda _state: None, inject_category=None):
     """One payment through the whole loop. Returns the audit entry.
 
     `persist` is called with the run state after a reservation is made and before the
     action fires, so the reservation survives a crash. It defaults to a no-op, which
     keeps this function usable in tests without touching the filesystem.
+
+    `inject_category` forces a wrong diagnosis, to demonstrate what the gate does when
+    the classification path fails. The honest verdict is still computed first and kept
+    in the audit trail beside the forced one, so nothing about the tampering is hidden.
     """
     category = diagnose.diagnose(record)
     source = "rules"
@@ -55,6 +59,18 @@ def process(record, state, now, use_real_api=False, use_llm_explain=None, use_ll
         else:
             category = "exhausted"
             source = "unresolved"
+
+    # Record what the agent actually concluded before overwriting it, so the trail shows
+    # both the real verdict and the fault forced over it.
+    injected_fault = None
+    if inject_category is not None:
+        injected_fault = {
+            "forced_category": inject_category,
+            "actual_category": category,
+            "actual_source": source,
+        }
+        category = inject_category
+        source = "injected_fault"
 
     intervention = decide.decide(category)
     gate_result = gate.evaluate(record, category, intervention, state, now)
@@ -95,7 +111,56 @@ def process(record, state, now, use_real_api=False, use_llm_explain=None, use_ll
         execution_result=execution_result,
         rationale=rationale,
         timestamp=now,
+        injected_fault=injected_fault,
     )
+
+
+def _parse_injections(specs):
+    """Parse ID=CATEGORY pairs. Raises on anything malformed — a typo must never yield a
+    clean-looking run that then gets presented as evidence."""
+    injections = {}
+    for spec in specs:
+        payment_id, _, category = spec.partition("=")
+        if not payment_id or not category:
+            raise SystemExit(f"--inject-misdiagnosis expects ID=CATEGORY, got {spec!r}")
+        if category not in diagnose.CATEGORIES:
+            raise SystemExit(
+                f"unknown category {category!r}; expected one of {sorted(diagnose.CATEGORIES)}"
+            )
+        injections[payment_id] = category
+    return injections
+
+
+def _banner_open(injected, records):
+    by_id = {r["id"]: r for r in records}
+    print("=" * 70)
+    print("FAULT INJECTION — THIS RUN IS A DEMONSTRATION, NOT A MEASUREMENT")
+    print("=" * 70)
+    for payment_id, forced in injected.items():
+        record = by_id[payment_id]
+        print(f"  {payment_id}: diagnosis forced to {forced!r}")
+        print(f"      record says error_reason={record.get('error_reason')!r}")
+    print("\nNo metrics will be computed and run_state.json will not be written.")
+    print("=" * 70)
+
+
+def _banner_close(injected, entries):
+    by_id = {e["payment_id"]: e for e in entries}
+    print("\n" + "=" * 70)
+    print("WHAT THE GATE DID ABOUT IT")
+    print("=" * 70)
+    for payment_id in injected:
+        entry = by_id[payment_id]
+        fault = entry["injected_fault"]
+        verdict = entry["refusal_reason"] or f"ALLOWED -> {entry['action_taken']}"
+        print(f"\n  {payment_id}")
+        print(f"    really was:  {fault['actual_category']}  (via {fault['actual_source']})")
+        print(f"    forced to:   {fault['forced_category']}")
+        print(f"    gate:        {entry['gate_result'].upper()}  {verdict}")
+        print(f"    executed:    {entry['execution_result']['status']}")
+    print(f"\nTampered trail written to {config.INJECTED_AUDIT_LOG_PATH};")
+    print(f"the honest {config.AUDIT_LOG_PATH} and {config.METRICS_PATH} are untouched.")
+    print("=" * 70)
 
 
 def main():
@@ -113,7 +178,24 @@ def main():
         metavar="PAYMENT_ID",
         help="create ONE real Razorpay test-mode payment link, for this payment id",
     )
+    parser.add_argument(
+        "--inject-misdiagnosis",
+        action="append",
+        default=[],
+        metavar="ID=CATEGORY",
+        help="DEMO ONLY: force a wrong diagnosis to show what the gate does about it. "
+             "Repeatable. Writes a separate audit trail and computes no metrics.",
+    )
     args = parser.parse_args()
+
+    injected = _parse_injections(args.inject_misdiagnosis)
+    if injected:
+        if args.real_link:
+            parser.error("--inject-misdiagnosis cannot be combined with --real-link: a "
+                         "tampered diagnosis must never reach a real payment API")
+        if args.resume:
+            parser.error("--inject-misdiagnosis cannot be combined with --resume: injected "
+                         "runs are in-memory and must not touch run_state.json")
 
     if args.n:
         # Same seeded mix, scaled. Kept in memory so a volume run never overwrites the
@@ -127,8 +209,17 @@ def main():
         records = detect.load_failures()
         ground_truth = detect.load_ground_truth()
 
+    known = {record["id"] for record in records}
+    for payment_id in injected:
+        if payment_id not in known:
+            parser.error(f"{payment_id} is not in this batch; nothing would be injected")
+
+    audit_path = config.INJECTED_AUDIT_LOG_PATH if injected else None
+    if injected:
+        _banner_open(injected, records)
+
     state = load_state(args.resume)
-    audit.reset()
+    audit.reset(audit_path)
     now = int(time.time())
 
     entries = []
@@ -138,12 +229,20 @@ def main():
             state,
             now,
             use_real_api=(record["id"] == args.real_link),
-            use_llm_explain=False if (args.no_explain or args.no_llm) else None,
+            # Injected traces produce prompts the cache has never seen, so the LLM is
+            # switched off to keep a demonstration hermetic.
+            use_llm_explain=False if (args.no_explain or args.no_llm or injected) else None,
             use_llm_diagnose=not args.no_llm,
-            persist=save_state,
+            # An injected run never persists state — it must not pollute real reservations.
+            persist=(lambda _state: None) if injected else save_state,
+            inject_category=injected.get(record["id"]),
         )
-        audit.append(entry)
+        audit.append(entry, audit_path)
         entries.append(entry)
+
+    if injected:
+        _banner_close(injected, entries)
+        return
 
     save_state(state)
 

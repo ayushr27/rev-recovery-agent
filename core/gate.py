@@ -12,6 +12,21 @@ parallelise and replay. Reading a file in here would quietly destroy that proper
 so every bound below reads from config.py and every input arrives as an argument —
 including `now`, which is passed in rather than read from the clock so the gate stays
 deterministic and testable.
+
+What this gate can and cannot catch, stated plainly because the distinction matters:
+
+  * Rule 1 keys off the DIAGNOSED CATEGORY. It guards against decide() proposing a
+    retry for a category that must never be retried. Since decide() routes
+    dead_instrument to send_link, it is unreachable in a real run and exists as a
+    backstop against a future bug in that table.
+  * Rule 1b keys off the RECORD. It is independent of the classification path, so a
+    misdiagnosis cannot slip a retry past it — but only where the evidence is an
+    explicit reason code.
+  * Neither can see evidence that exists only in error_description. A payment whose
+    only signal of a dead card is prose will be retried if the classifier says to.
+    That residual risk is measured, not eliminated: report/metrics.py counts
+    false interventions after the fact, and scripts/eval_llm.py measures how often
+    the classifier is wrong in the first place.
 """
 
 import hashlib
@@ -24,6 +39,7 @@ from core import decide
 # Structured outcomes. Every refusal names a rule, so an auditor never sees a bare
 # "blocked" without knowing which bound produced it.
 DEAD_INSTRUMENT_NEVER_RETRIED = "DEAD_INSTRUMENT_NEVER_RETRIED"
+DEAD_INSTRUMENT_EVIDENCE_IN_RECORD = "DEAD_INSTRUMENT_EVIDENCE_IN_RECORD"
 RETRY_CAP_EXCEEDED = "RETRY_CAP_EXCEEDED"
 AFA_REQUIRED_ABOVE_THRESHOLD = "AFA_REQUIRED_ABOVE_THRESHOLD"
 DUPLICATE_ACTION_IN_WINDOW = "DUPLICATE_ACTION_IN_WINDOW"
@@ -69,6 +85,17 @@ def cooling_off_hours(category):
     return config.COOLING_OFF_HOURS.get(category, config.DEFAULT_COOLING_OFF_HOURS)
 
 
+def _has_dead_instrument_evidence(record):
+    """True when the record itself carries explicit proof the instrument is dead.
+
+    Reads the raw record rather than the diagnosed category, so it holds whatever the
+    classifier concluded. It sees machine-readable reason codes only — evidence that
+    exists solely in error_description is invisible to it. See config for why this list
+    is duplicated rather than imported from diagnose.
+    """
+    return record.get("error_reason") in config.HARD_DEAD_INSTRUMENT_REASONS
+
+
 def _window(now, hours):
     """Bucket index for `now`. Rolls over once per cooling window."""
     return int(now // (hours * 3600))
@@ -94,8 +121,18 @@ def evaluate(record, category, intervention, state, now):
 
     # 1. A dead instrument is never retried. Checked first because it is a safety
     #    invariant rather than a budget: no amount of remaining quota makes it valid.
+    #    This trusts the diagnosed category, so it guards against a bug in decide()
+    #    rather than against a wrong diagnosis — see 1b.
     if category == "dead_instrument" and action == decide.RETRY:
         return GateResult(REFUSE, None, DEAD_INSTRUMENT_NEVER_RETRIED, None)
+
+    # 1b. The same invariant, re-derived from the record instead of from the category.
+    #     Rule 1 is only as good as the classification; if diagnosis is wrong it never
+    #     fires. This one holds regardless of what the record was labelled, so no change
+    #     to the classification path can authorise a retry against explicit evidence.
+    #     Its reach is narrow and deliberately so: reason codes only, never prose.
+    if action == decide.RETRY and _has_dead_instrument_evidence(record):
+        return GateResult(REFUSE, None, DEAD_INSTRUMENT_EVIDENCE_IN_RECORD, None)
 
     # 2. Retry cap counts the processor's own prior attempts plus everything this run
     #    has already fired, so a payment that arrives near the cap cannot slip past it.
