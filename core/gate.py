@@ -151,8 +151,10 @@ def evaluate(record, category, intervention, state, now):
 def commit(state, payment_id, result, now):
     """Record an allowed action against the run state. The only mutator; still no I/O.
 
-    Call this before executing, not after: reserving the idempotency key first is what
-    stops a crash between decision and execution from letting the action fire twice.
+    Call this before executing, not after, so the key is reserved rather than recorded
+    after the fact. On its own that only protects within a process: the caller must also
+    persist the state before firing, or a crash would lose the reservation and a re-run
+    could fire the same action twice. run_batch.process() does exactly that.
     """
     if not result.allowed:
         return state

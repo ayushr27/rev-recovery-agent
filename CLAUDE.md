@@ -8,7 +8,7 @@ See plan.md for the full phase plan. This file tracks STATE.
 - Active phase: 7 — DONE. All phases complete, 12 days before the Sept 3 target.
 - **Fresh-clone gate PASSES (verified twice, 2026-08-22).** Cloned into an empty dir
   with NO `.env` and no API keys: `pip install -r requirements.txt && python
-  run_batch.py` reproduces Rs 141,801.84 / 21 of 32 / 98.0% exactly, and 56 tests pass.
+  run_batch.py` reproduces Rs 141,801.84 / 21 of 32 / 98.0% exactly, and all tests pass.
   Works keyless because `llm.complete()` checks the committed cache before it ever
   looks for a provider — so the demo is hermetic by construction, not by luck.
 - Every figure in README.md was checked against metrics.json programmatically before
@@ -202,8 +202,8 @@ See plan.md for the full phase plan. This file tracks STATE.
 - Phase 2 check: `python scripts/check_diagnose.py` — prints the confusion count and
   exits non-zero if any record is misclassified, any eval field leaks, or the
   needs_llm tail is not exactly 4.
-- Tests: `pytest tests/ -q` (56 tests: decide, six gate bounds, execution honesty,
-  metrics arithmetic).
+- Tests: `pytest tests/ -q` (87 tests: decide, six gate bounds, execution honesty,
+  LLM containment + caching + explain fallback, metrics arithmetic).
 - Full batch: `python run_batch.py` (fresh state, LLM from cache, prints the report).
   - `--no-explain` skips LLM rationales (template fallback) for fast dev runs.
   - `--no-llm` skips the LLM entirely (rules only; needs_llm records escalate).

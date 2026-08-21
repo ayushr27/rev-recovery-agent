@@ -33,8 +33,14 @@ def save_state(state):
     STATE_PATH.write_text(json.dumps(state, indent=2) + "\n")
 
 
-def process(record, state, now, use_real_api=False, use_llm_explain=None, use_llm_diagnose=True):
-    """One payment through the whole loop. Returns the audit entry."""
+def process(record, state, now, use_real_api=False, use_llm_explain=None, use_llm_diagnose=True,
+            persist=lambda _state: None):
+    """One payment through the whole loop. Returns the audit entry.
+
+    `persist` is called with the run state after a reservation is made and before the
+    action fires, so the reservation survives a crash. It defaults to a no-op, which
+    keeps this function usable in tests without touching the filesystem.
+    """
     category = diagnose.diagnose(record)
     source = "rules"
 
@@ -53,10 +59,14 @@ def process(record, state, now, use_real_api=False, use_llm_explain=None, use_ll
     intervention = decide.decide(category)
     gate_result = gate.evaluate(record, category, intervention, state, now)
 
-    # Commit before executing: reserving the idempotency key first means a crash
-    # between the decision and the action cannot let that action fire twice.
+    # Commit AND persist before executing. Reserving the key in memory is not enough:
+    # if the state only reached disk at the end of the batch, a crash mid-run would
+    # lose every reservation and a re-run could fire the same action twice. Writing
+    # first means the worst case is an action we recorded but never sent — which is
+    # the right way round for a payments system.
     if gate_result.allowed:
         gate.commit(state, record["id"], gate_result, now)
+        persist(state)
 
     execution_result = execute.execute(record, category, gate_result, use_real_api=use_real_api)
 
@@ -130,6 +140,7 @@ def main():
             use_real_api=(record["id"] == args.real_link),
             use_llm_explain=False if (args.no_explain or args.no_llm) else None,
             use_llm_diagnose=not args.no_llm,
+            persist=save_state,
         )
         audit.append(entry)
         entries.append(entry)

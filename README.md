@@ -73,13 +73,16 @@ a Groq (or Gemini) key and Razorpay **test-mode** credentials.
 | `python run_batch.py --n 500` | volume, and the global budget correctly halting the batch |
 | `python run_batch.py --real-link pay_TEST00011` | creates one **real** Razorpay test-mode payment link |
 | `python run_batch.py --no-llm` | rules only, no model involved |
-| `pytest tests/ -q` | 56 tests — every stopping rule, execution honesty, metric arithmetic |
+| `pytest tests/ -q` | 87 tests — every stopping rule, execution honesty, LLM containment, metric arithmetic |
 
 ### The UI
 
 ```bash
 cd app && npm install && npm run dev     # http://localhost:3000
 ```
+
+Requires Node 20+ (Next.js 16). The Python agent has no Node dependency — if the UI is
+inconvenient, `python run_batch.py` prints the same numbers.
 
 A single page: the headline number, a summary strip, and the full audit table with
 refusals, AFA conversions and escalations colour-coded. Run the batch first — the page
@@ -222,7 +225,7 @@ core/
 report/metrics.py      the honest report; only reader of ground truth
 fixtures/              seeded generator + the committed 50-record batch
 app/                   Next.js single-page audit view
-tests/                 56 tests
+tests/                 87 tests
 SCENARIOS.md           demo beats mapped to payment ids
 CLAUDE.md              build state and the decisions log
 ```
