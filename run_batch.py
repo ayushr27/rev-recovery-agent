@@ -136,8 +136,13 @@ def main():
 
     save_state(state)
 
-    metrics.render(metrics.report(entries, ground_truth))
-    print(f"Audit trail: {config.AUDIT_LOG_PATH}  |  state: {config.RUN_STATE_PATH}")
+    data = metrics.report(entries, ground_truth)
+    metrics.write(data)
+    metrics.render(data)
+    print(
+        f"Audit trail: {config.AUDIT_LOG_PATH}  |  state: {config.RUN_STATE_PATH}"
+        f"  |  metrics: {config.METRICS_PATH}"
+    )
 
 
 if __name__ == "__main__":

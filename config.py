@@ -43,5 +43,6 @@ EXPLAIN_WITH_LLM = True
 # Runtime file locations (kept here so no module hardcodes a path).
 RUN_STATE_PATH = "run_state.json"
 AUDIT_LOG_PATH = "audit_log.jsonl"
+METRICS_PATH = "metrics.json"  # written each run; the UI reads it
 LLM_CACHE_PATH = "llm_cache.json"
 FIXTURES_PATH = "fixtures/failed_payments.json"

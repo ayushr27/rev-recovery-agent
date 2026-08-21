@@ -15,8 +15,11 @@ Three deliberate choices about honesty:
    is regulatory compliance.
 """
 
+import json
 from collections import Counter
+from pathlib import Path
 
+import config
 from core import decide, execute, gate
 
 ACTION_APPROPRIATE_FOR_DEAD = frozenset({decide.SEND_LINK, decide.ESCALATE, decide.REQUIRES_AFA})
@@ -87,6 +90,13 @@ def report(entries, ground_truth):
         "recovered_paise": recovered_paise,
         "afa_paise": afa_paise,
     }
+
+
+def write(data, path=None):
+    """Persist the report so the UI can render it without re-deriving anything."""
+    target = Path(path or Path(__file__).resolve().parent.parent / config.METRICS_PATH)
+    target.write_text(json.dumps(data, indent=2) + "\n")
+    return target
 
 
 def render(data):

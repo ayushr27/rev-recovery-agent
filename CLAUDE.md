@@ -5,17 +5,17 @@ Razorpay Buildathon Track 03 — bounded failed-payment recovery agent.
 See plan.md for the full phase plan. This file tracks STATE.
 
 ## Current status
-- Active phase: 5 — LLM diagnosis tail + Orchestrate + Metrics (DONE, pending
-  user confirmation)
-- Last session ended: 2026-08-21 — `llm.classify_failure()` wired in (constrained to
-  the four labels, out-of-spec answers default to escalate), `--n` scaled batches,
-  and `report/metrics.py` with the honest recoverable denominator. Headline run:
-  **21 of 32 recoverable recovered (65.6%), Rs 141,801.84 of Rs 460,979.07**,
-  diagnosis accuracy 98% (rules 46/46, LLM 3/4), false_intervention 0. Reproducible
-  across runs; warm cache → 0.06s, zero API calls. 56 pytest tests pass.
-- Next action: get user confirmation that Phase 5's Definition of Done passes, then
-  Phase 6 (minimal Next.js UI — LAST, do not start early). If time is short the plan
-  says cut UI polish before anything else; the gate and honest metrics already exist.
+- Active phase: 6 — Minimal UI (DONE, pending user confirmation)
+- Last session ended: 2026-08-21 — Next.js 16.3.2 / React 19.2.8 single page in `app/`.
+  Server Component reads `metrics.json` + `audit_log.jsonl` from the repo root at
+  request time; headline number, summary strip, and the audit table with refusals /
+  conversions / escalations colour-coded. Verified: typecheck clean, production build
+  clean, HTTP 200, correct figures rendered (Rs 1,41,801.84 in en-IN grouping), 50
+  rows, stylesheet served with all rules. On `--resume` all 50 rows render as refused
+  with their reason codes visible.
+- Next action: get user confirmation that Phase 6's Definition of Done passes, then
+  Phase 7 (README incl. the regulatory-grounding + scalability paragraphs, demo
+  recording, submission). Phase 7 is the last one.
 
 ## Phase checklist
 - [x] Phase 0 — Scaffold & config
@@ -24,7 +24,7 @@ See plan.md for the full phase plan. This file tracks STATE.
 - [x] Phase 3 — Decide + Gate (the spine)
 - [x] Phase 4 — Execute + Explain + Audit
 - [x] Phase 5 — LLM diagnosis tail + Orchestrate + Metrics
-- [ ] Phase 6 — Minimal UI
+- [x] Phase 6 — Minimal UI
 - [ ] Phase 7 — Demo, README, polish
 
 ## Decisions log (append-only — never rewrite history)
@@ -80,6 +80,24 @@ See plan.md for the full phase plan. This file tracks STATE.
 - 2026-08-21: Added `config.DEFAULT_COOLING_OFF_HOURS = 24` for categories absent from
   COOLING_OFF_HOURS (dead_instrument, exhausted) — needed so their actions still get an
   idempotency window rather than being re-firable at will.
+- 2026-08-21: UI is Next.js **16.3.2** / React **19.2.8** (checked against npm, not
+  assumed). Scaffolded with `create-next-app --empty --no-tailwind --src-dir`. NOTE:
+  Next 16 generates a global `LayoutProps<"/">` type for the root layout — do not
+  hand-write `{children: React.ReactNode}`, and read `app/AGENTS.md` before changing
+  Next code, since much of it postdates the training cutoff.
+- 2026-08-21: No Tailwind — the page is one headline plus one table, so ~80 lines of
+  plain CSS in globals.css beats another dependency and build step.
+- 2026-08-21: The page is a Server Component with `export const dynamic =
+  "force-dynamic"`, reading metrics.json + audit_log.jsonl from the repo root per
+  request. Without force-dynamic Next would prerender the numbers at build time and
+  the page would go stale after a new batch run. Build output confirms route `/` is
+  `ƒ (Dynamic)`.
+- 2026-08-21: run_batch now also writes `metrics.json` (gitignored, like
+  audit_log.jsonl) so the UI renders what the agent decided rather than re-deriving
+  anything in the browser. No orchestration happens client-side.
+- 2026-08-21: `app/CLAUDE.md` is a create-next-app artifact containing only
+  `@AGENTS.md`; `next dev` regenerates it. **It is NOT this progress tracker** — the
+  tracker is the CLAUDE.md at the repo root.
 - 2026-08-21: LLM diagnosis lives in `llm.classify_failure()`, NOT in diagnose.py —
   the plan says needs_llm records "go to core/llm.py", and it keeps diagnose.py pure.
   The four labels are passed in by the caller so llm.py stays domain-agnostic. A
@@ -135,7 +153,7 @@ See plan.md for the full phase plan. This file tracks STATE.
 | metrics.py           | implemented  | honest denominator + safety + budget flag         |
 | run_batch.py         | implemented  | full loop incl. LLM tail, --n, metrics             |
 | config.py            | implemented  | all Phase 0 constants + runtime file paths        |
-| app/ (UI)            | not started  | Phase 6 — do not start early                      |
+| app/ (UI)            | implemented  | Next 16 server component; reads metrics + audit   |
 
 ## Known issues / TODO carried forward
 - Any script under `fixtures/` or `scripts/` needs its own `sys.path` bootstrap (see
@@ -182,3 +200,7 @@ See plan.md for the full phase plan. This file tracks STATE.
   - `--n 500` runs a scaled in-memory batch — the volume demo.
   - `--resume` carries run_state.json forward — this is the idempotency demo.
   - `--real-link pay_TEST00011` makes ONE real Razorpay test-mode payment link.
+- UI: `cd app && npm install` (once), then `npm run dev` → http://localhost:3000.
+  Run the batch FIRST — with no metrics.json the page shows an empty-state prompt
+  rather than an error. The page re-reads on refresh, so no restart is needed after
+  a new run.
