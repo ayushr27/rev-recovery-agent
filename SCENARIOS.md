@@ -1,5 +1,37 @@
 # SCENARIOS.md — demo beats
 
+## Demo running order
+
+Roughly four minutes. Every step runs from the committed cache — **zero live LLM calls**,
+so there is no rate-limit or outage risk on stage.
+
+1. **The number.** `python run_batch.py` → the report. Lead with the honest denominator:
+   21 of **32 recoverable**, not 21 of 50. Point at "18 truly dead — correctly not
+   pursued" and say why inflating the denominator would be the easy lie.
+2. **Say the baseline out loud.** Without the agent, 0 recovered and all ₹4,60,979.07
+   stays failed. That is what the recovery is measured against.
+3. **Diagnosis accuracy, in the same breath.** 98% overall, rules 46/46, LLM 3 of 4.
+   Volunteer the miss before anyone finds it — and note it degraded safely to a link
+   rather than a retry, so false interventions stayed 0.
+4. **Refusal #1 — the AFA threshold** (`pay_TEST00003`, ₹87,970 recurring). The gate
+   refuses the silent retry and converts it to an authentication link. This is the
+   strongest beat: a real RBI rule, and it only applies to *recurring* debits — the
+   one-time records above ₹15,000 correctly pass straight through.
+5. **Refusal #2 — graceful escalation** (`pay_TEST00006`). At the retry cap, handed to a
+   human rather than retried.
+6. **Idempotency.** `python run_batch.py --resume` → all 50 refused, 0 actioned. Same
+   payments, same window, nothing double-fired. This is the scalability primitive.
+7. **Volume.** `python run_batch.py --n 500` → the global budget halts the batch at 100
+   actions and the report says so explicitly, rather than letting the lower rate read as
+   failure.
+8. **The real object.** Show `plink_TSNNNlcJUtCEV6` (below) — a genuine Razorpay
+   test-mode payment link. Pre-captured; do not depend on a live call on stage.
+9. **The UI**, if there is time: `cd app && npm run dev`. Refusals are colour-coded.
+
+If asked "what about high load?": the decision core is pure and idempotent, so it
+parallelises and replays safely; scaling is an I/O-layer swap, deliberately not built.
+
+
 Filled in during Phase 1 after fixture generation, with the actual payment ids that
 hit each named demo beat. If any beat has no matching id, fixtures get adjusted until
 it does — this file is what keeps fixture generation honest.
