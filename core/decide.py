@@ -16,6 +16,11 @@ SEND_LINK = "send_link"
 ESCALATE = "escalate"
 REQUIRES_AFA = "requires_afa"
 
+# Which categories can be recovered at all. This is a property of the four-category
+# table the agent reasons with, derived from the category it diagnosed itself — not the
+# eval-only `_recoverable` field, which only report/metrics.py may read.
+RECOVERABLE_CATEGORIES = frozenset({"bank_downtime", "insufficient_funds"})
+
 
 @dataclass(frozen=True)
 class Intervention:

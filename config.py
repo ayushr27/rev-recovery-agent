@@ -23,6 +23,23 @@ DEFAULT_COOLING_OFF_HOURS = 24
 # amount require additional-factor authentication and cannot be silently reattempted.
 AFA_THRESHOLD_PAISE = 1_500_000  # ₹15,000
 
+# Simulated execution. Outcomes are derived from a hash of the payment id rather than
+# a running rng, so the recovered figure is identical no matter what order the batch is
+# processed in — and stays identical across runs.
+SIMULATION_SEED = 0
+
+# Probability that a gated retry converts to `captured`, per category. A transient bank
+# outage has usually cleared by the time we retry; an underfunded account has often not
+# been topped up. Recoverable categories only — execute.simulate() structurally refuses
+# to let an unrecoverable category succeed, whatever is configured here.
+SIMULATED_RETRY_SUCCESS_RATE = {
+    "bank_downtime": 0.75,
+    "insufficient_funds": 0.45,
+}
+
+# Set False (or pass --no-explain) to skip LLM rationale generation on dev runs.
+EXPLAIN_WITH_LLM = True
+
 # Runtime file locations (kept here so no module hardcodes a path).
 RUN_STATE_PATH = "run_state.json"
 AUDIT_LOG_PATH = "audit_log.jsonl"

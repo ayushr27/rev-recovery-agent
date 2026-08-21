@@ -5,24 +5,25 @@ Razorpay Buildathon Track 03 — bounded failed-payment recovery agent.
 See plan.md for the full phase plan. This file tracks STATE.
 
 ## Current status
-- Active phase: 3 — Decide + Gate (DONE, pending user confirmation to advance)
-- Last session ended: 2026-08-21 — `core/decide.py` (four-category → Intervention,
-  fails closed on unknown/needs_llm) and `core/gate.py` (the spine) implemented.
-  Gate enforces: dead-instrument-never-retried, retry cap (record.retry_count +
-  state attempts), RBI AFA conversion, idempotency key, cooling-off, global budget —
-  each returning a structured reason. 33 pytest tests pass. Whole decision core
-  (diagnose/decide/gate) verified I/O-free by grep. LLM still not called anywhere.
-- Next action: get user confirmation that Phase 3's Definition of Done passes, then
-  start Phase 4 (Execute + Explain + Audit). Phase 4 must prove the real Razorpay
-  test-mode payment-link call works and degrades cleanly when keys are absent — the
-  plan warns explicitly not to leave API auth until the final days.
+- Active phase: 4 — Execute + Explain + Audit (DONE, pending user confirmation)
+- Last session ended: 2026-08-21 — `execute.py` (seeded hash-based outcomes + real
+  Razorpay test-mode link path), `explain.py` (LLM rationale, template fallback),
+  `audit.py` (JSONL trail), and a working `run_batch.py` implemented. Full batch runs
+  clean: 50 payments, 20 captured, 4 AFA converts, 10 escalations, every row carrying
+  a rationale and idempotency key. Real test-mode link `plink_TSNNNlcJUtCEV6` created
+  and fetched back. 44 pytest tests pass. Warm llm_cache.json → 1m51s run drops to
+  0.08s with ZERO API calls.
+- Next action: get user confirmation that Phase 4's Definition of Done passes, then
+  start Phase 5 (LLM diagnosis tail + metrics). Phase 5 must replace the
+  `unresolved_pending_llm` placeholder in run_batch.process(), add `--n` batch sizing,
+  and build report/metrics.py with the honest recoverable denominator.
 
 ## Phase checklist
 - [x] Phase 0 — Scaffold & config
 - [x] Phase 1 — Fixtures
 - [x] Phase 2 — Detect + Diagnose (rules, LLM stubbed)
 - [x] Phase 3 — Decide + Gate (the spine)
-- [ ] Phase 4 — Execute + Explain + Audit
+- [x] Phase 4 — Execute + Explain + Audit
 - [ ] Phase 5 — LLM diagnosis tail + Orchestrate + Metrics
 - [ ] Phase 6 — Minimal UI
 - [ ] Phase 7 — Demo, README, polish
@@ -80,6 +81,22 @@ See plan.md for the full phase plan. This file tracks STATE.
 - 2026-08-21: Added `config.DEFAULT_COOLING_OFF_HOURS = 24` for categories absent from
   COOLING_OFF_HOURS (dead_instrument, exhausted) — needed so their actions still get an
   idempotency window rather than being re-firable at will.
+- 2026-08-21: **run_batch.py built in Phase 4, not Phase 5.** Phase 4's DoD requires "a
+  full batch run writes a complete audit_log.jsonl", which needs the loop. Ordering
+  shift only; Phase 5 still owns the LLM diagnosis tail, metrics and --n.
+- 2026-08-21: Simulated outcomes hash the payment id rather than drawing from a running
+  rng, so the recovered figure is independent of processing order and stable across
+  runs. `simulate()` structurally refuses to let an unrecoverable category succeed —
+  a test proves this holds even with a 100% success rate configured for dead_instrument.
+- 2026-08-21: Batch runs start from FRESH state by default (--resume to carry state
+  forward) so the rupee figure is reproducible. --resume is also the idempotency demo.
+- 2026-08-21: The real Razorpay call is opt-in per payment (`--real-link <id>`), not
+  on by default — otherwise every dead_instrument record would create a real object and
+  the batch would be slow and non-hermetic. Notifications hard-disabled in the payload:
+  these are synthetic customers and nothing should ever be sent to anyone.
+- 2026-08-21: explain.py builds its prompt from stable fields only (NO timestamp) so
+  re-runs hit the LLM cache. Any LLM failure falls back to a deterministic template
+  sentence rather than aborting the run or leaving a blank rationale.
 - 2026-08-21: The ambiguous `exhausted` fixture carries an explicit retry_count=1
   override. Without it, rule #1 would resolve it deterministically and the LLM tail
   would shrink to 3 records. Its description refers to out-of-band dunning outreach,
@@ -94,11 +111,11 @@ See plan.md for the full phase plan. This file tracks STATE.
 | diagnose.py          | implemented  | rules table; returns needs_llm for the tail       |
 | decide.py            | implemented  | 4-category table; fails closed on unknown         |
 | gate.py              | implemented  | 6 bounds, structured reasons; pure, 33 tests pass |
-| execute.py           | stub         | docstring only                                    |
-| explain.py           | stub         | docstring only                                    |
-| audit.py             | stub         | docstring only                                    |
-| metrics.py           | stub         | docstring only                                    |
-| run_batch.py         | stub         | docstring only                                    |
+| execute.py           | implemented  | seeded outcomes + real Razorpay test-mode path    |
+| explain.py           | implemented  | LLM rationale, deterministic template fallback    |
+| audit.py             | implemented  | JSONL trail, 14 fields per decision               |
+| metrics.py           | stub         | docstring only — Phase 5                          |
+| run_batch.py         | implemented  | full loop; LLM diagnosis tail pending (Phase 5)   |
 | config.py            | implemented  | all Phase 0 constants + runtime file paths        |
 | app/ (UI)            | not started  | Phase 6 — do not start early                      |
 
@@ -110,14 +127,21 @@ See plan.md for the full phase plan. This file tracks STATE.
   since it already lives at the repo root.
 - Razorpay test-mode key was added to `.env` but not yet exercised (that's Phase 4's
   real test-mode payment-link call, not a Phase 0/1 concern).
-- SCENARIOS.md "successful recovery" row is still TBD — needs Phase 4's seeded
-  execute() outcome before a payment id can be picked.
-- Idempotency never fires naturally within a single batch run (50 unique payment ids,
-  each seen once). It fires on a SECOND run against a warm run_state.json — which is
-  itself a strong demo beat: run the batch twice, watch the second run refuse
-  everything as DUPLICATE_ACTION_IN_WINDOW. Worth showing in Phase 7.
-- run_state.json load/save is NOT written yet — it lands in run_batch.py in Phase 5.
-  Until then the gate is exercised only by tests, which build state dicts inline.
+- `run_batch.process()` still forces the 4 needs_llm records to `exhausted` with
+  source `unresolved_pending_llm`. **Phase 5 must replace this** — it is a fail-closed
+  placeholder, and it currently understates diagnosis accuracy (those 4 records are
+  really bank_downtime / insufficient_funds / dead_instrument / exhausted, one each).
+- Several gate bounds are backstops that never fire in a fresh run, by design:
+  DEAD_INSTRUMENT_NEVER_RETRIED (decide() never proposes a retry for a dead card) and
+  GLOBAL_BUDGET_EXHAUSTED (50 payments vs a 100 budget). RETRY_CAP_EXCEEDED also does
+  not fire fresh, because diagnose() routes an at-cap record to `exhausted` first. All
+  are covered by tests; see SCENARIOS.md "Refusals: which ones fire, and when".
+- Two real test-mode payment links exist in the Razorpay account, not one:
+  `plink_TSNNNlcJUtCEV6` (the intended demo object, recorded in SCENARIOS.md) and
+  `plink_TSNNdtB2PiYw2R`, created accidentally while testing the missing-credentials
+  path — load_dotenv() re-read .env and restored the keys the test had removed. Both
+  are test mode with notifications disabled, so harmless. The fallback is now tested
+  properly (empty-but-present env vars) in tests/test_execute.py.
 
 ## How to run (keep current as it changes)
 - `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
@@ -129,5 +153,8 @@ See plan.md for the full phase plan. This file tracks STATE.
 - Phase 2 check: `python scripts/check_diagnose.py` — prints the confusion count and
   exits non-zero if any record is misclassified, any eval field leaks, or the
   needs_llm tail is not exactly 4.
-- Tests: `pytest tests/ -q` (33 tests: decide table + all six gate bounds).
-- Later phases: `python run_batch.py`.
+- Tests: `pytest tests/ -q` (44 tests: decide, all six gate bounds, execution honesty).
+- Full batch: `python run_batch.py` (fresh state, LLM rationales from cache).
+  - `--no-explain` skips LLM rationales (template fallback) for fast dev runs.
+  - `--resume` carries run_state.json forward — this is the idempotency demo.
+  - `--real-link pay_TEST00011` makes ONE real Razorpay test-mode payment link.
