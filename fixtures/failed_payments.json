@@ -607,7 +607,7 @@
     "error_reason": "payment_failed",
     "error_description": "We've tried reaching out multiple times without success; no further automatic attempts will be made on this payment.",
     "created_at": 1752604872,
-    "retry_count": 3,
+    "retry_count": 1,
     "_ground_truth_category": "exhausted",
     "_recoverable": false
   },

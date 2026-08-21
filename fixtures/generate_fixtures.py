@@ -63,19 +63,55 @@ CATEGORY_VARIANTS = {
     ],
 }
 
-# Deliberately messy cases: (ground_truth, error_code, error_source, error_step,
-# error_reason, description). Each tuple's (code, source, step) is chosen to NOT
-# match any CATEGORY_SIGNATURE above, so the rules table can't cleanly resolve it —
-# only the description text gives the real signal, which is what the LLM tail is for.
+# Deliberately messy cases. Each case's (error_code, error_source, error_step) is
+# chosen to NOT match any CATEGORY_SIGNATURE above, and its error_reason is a generic
+# one the reason table doesn't key on — so the rules table cannot cleanly resolve it.
+# Only the free-text description carries the real signal, which is exactly what the
+# LLM tail exists to read.
+#
+# `retry_count` overrides the category default when set. The exhausted case needs one:
+# without it the record would carry retry_count == MAX_RETRY_ATTEMPTS and the rules
+# table would resolve it deterministically via the retry-cap rule, leaving nothing
+# ambiguous about it. At retry_count=1 the record is genuinely judgment-requiring —
+# its description is about out-of-band dunning outreach ("tried reaching out"), not
+# payment retries, so the two signals honestly disagree.
 AMBIGUOUS_CASES = [
-    ("insufficient_funds", "GATEWAY_ERROR", "bank", "payment_processing", "payment_failed",
-     "The transaction did not go through because the available balance was too low to cover this payment."),
-    ("bank_downtime", "SERVER_ERROR", "gateway", "payment_processing", "timeout",
-     "We experienced a brief service interruption while contacting your bank; this usually clears up within a couple of hours."),
-    ("dead_instrument", "GATEWAY_ERROR", "bank", "payment_authentication", "authentication_failed",
-     "The card used for this transaction is no longer valid and has been permanently deactivated by the issuer."),
-    ("exhausted", "BAD_REQUEST_ERROR", "customer", "payment_processing", "payment_failed",
-     "We've tried reaching out multiple times without success; no further automatic attempts will be made on this payment."),
+    {
+        "category": "insufficient_funds",
+        "error_code": "GATEWAY_ERROR",
+        "error_source": "bank",
+        "error_step": "payment_processing",
+        "error_reason": "payment_failed",
+        "error_description": "The transaction did not go through because the available balance was too low to cover this payment.",
+        "retry_count": None,
+    },
+    {
+        "category": "bank_downtime",
+        "error_code": "SERVER_ERROR",
+        "error_source": "gateway",
+        "error_step": "payment_processing",
+        "error_reason": "timeout",
+        "error_description": "We experienced a brief service interruption while contacting your bank; this usually clears up within a couple of hours.",
+        "retry_count": None,
+    },
+    {
+        "category": "dead_instrument",
+        "error_code": "GATEWAY_ERROR",
+        "error_source": "bank",
+        "error_step": "payment_authentication",
+        "error_reason": "authentication_failed",
+        "error_description": "The card used for this transaction is no longer valid and has been permanently deactivated by the issuer.",
+        "retry_count": None,
+    },
+    {
+        "category": "exhausted",
+        "error_code": "BAD_REQUEST_ERROR",
+        "error_source": "customer",
+        "error_step": "payment_processing",
+        "error_reason": "payment_failed",
+        "error_description": "We've tried reaching out multiple times without success; no further automatic attempts will be made on this payment.",
+        "retry_count": 1,
+    },
 ]
 
 # Category mix, expressed as fractions of the ~50-record baseline so --n scales the
@@ -113,14 +149,22 @@ def _amount_paise(rng, high_afa):
 
 
 def _build_record(rng, idx, slot, payment_type, high_afa):
+    retry_override = None
     if slot["ambiguous"] is not None:
-        category, error_code, error_source, error_step, error_reason, description = slot["ambiguous"]
+        case = slot["ambiguous"]
+        category = case["category"]
+        error_code = case["error_code"]
+        error_source = case["error_source"]
+        error_step = case["error_step"]
+        error_reason = case["error_reason"]
+        description = case["error_description"]
+        retry_override = case["retry_count"]
     else:
         category = slot["category"]
         error_code, error_source, error_step = CATEGORY_SIGNATURE[category]
         error_reason, description = rng.choice(CATEGORY_VARIANTS[category])
 
-    return {
+    record = {
         "id": f"pay_TEST{idx:05d}",
         "amount": _amount_paise(rng, high_afa),
         "currency": "INR",
@@ -137,6 +181,13 @@ def _build_record(rng, idx, slot, payment_type, high_afa):
         "_ground_truth_category": category,
         "_recoverable": RECOVERABLE[category],
     }
+
+    # Applied after the fact, never in place of the _retry_count_for call above, so
+    # the rng stream stays identical whether or not an override exists — otherwise
+    # overriding one record would shift every record generated after it.
+    if retry_override is not None:
+        record["retry_count"] = retry_override
+    return record
 
 
 def generate(n=50, seed=SEED):

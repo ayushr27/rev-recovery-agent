@@ -5,22 +5,21 @@ Razorpay Buildathon Track 03 — bounded failed-payment recovery agent.
 See plan.md for the full phase plan. This file tracks STATE.
 
 ## Current status
-- Active phase: 1 — Fixtures (DONE, pending user confirmation to advance)
-- Last session ended: 2026-08-20 — `fixtures/generate_fixtures.py` implemented and
-  run: 50 records (bank_downtime 19, insufficient_funds 13, dead_instrument 11,
-  exhausted 7 — includes the 4 ambiguous records' true categories), 7 one_time /
-  43 recurring, 4 AFA-eligible, 4 atypical-signature (needs_llm) records. Verified
-  reproducible (identical output across two runs with the same seed). SCENARIOS.md
-  filled in with 4 of 5 confirmed payment ids; "successful recovery" stays TBD until
-  Phase 4's seeded execute() exists.
-- Next action: get user confirmation that Phase 1's Definition of Done passes, then
-  start Phase 2 (Detect + Diagnose — rules table over error_code/source/step, LLM
-  stubbed, sentinel "needs_llm" for the 4 atypical records).
+- Active phase: 2 — Detect + Diagnose (DONE, pending user confirmation to advance)
+- Last session ended: 2026-08-21 — `core/detect.py` (load_failures strips eval-only
+  fields; load_ground_truth is metrics-only) and `core/diagnose.py` (rules table:
+  retry_cap → error_reason → signature → keyword → needs_llm) implemented.
+  `scripts/check_diagnose.py` reports 46/46 resolved correctly, 0 misclassified,
+  exactly 4 deferred to needs_llm, 0 eval-field leakage. The 4 ambiguous records span
+  all four categories (one each). LLM still stubbed — not called anywhere yet.
+- Next action: get user confirmation that Phase 2's Definition of Done passes, then
+  start Phase 3 (Decide + Gate — the spine; spend the most time here). Phase 3 needs
+  pytest unit tests proving each stopping rule fires.
 
 ## Phase checklist
 - [x] Phase 0 — Scaffold & config
 - [x] Phase 1 — Fixtures
-- [ ] Phase 2 — Detect + Diagnose (rules, LLM stubbed)
+- [x] Phase 2 — Detect + Diagnose (rules, LLM stubbed)
 - [ ] Phase 3 — Decide + Gate (the spine)
 - [ ] Phase 4 — Execute + Explain + Audit
 - [ ] Phase 5 — LLM diagnosis tail + Orchestrate + Metrics
@@ -46,14 +45,32 @@ See plan.md for the full phase plan. This file tracks STATE.
 - Pre-seeded: cooling-off windows (insufficient_funds T+24h) reflect processor practice
   (24–48h), NOT a hard RBI rule. bank_downtime shorter (transient).
 - Pre-seeded: pre-debit notification is trace-level only (one audit field), no real infra.
+- 2026-08-21: `detect.py` exposes TWO functions rather than the plan's single
+  `load_failures(path) -> list[dict]`: `load_failures()` (eval fields stripped, for the
+  pipeline) and `load_ground_truth()` (for report/metrics.py ONLY). Keeping them
+  separate honors the plan's stated signature while still giving metrics its data —
+  a single function returning a tuple would have changed the documented signature.
+- 2026-08-21: Diagnosis rule order is retry_cap → error_reason → signature → keyword
+  → needs_llm. `retry_count >= MAX_RETRY_ATTEMPTS → exhausted` is rule #1 because the
+  plan defines `exhausted` as "already at retry cap"; the gate still independently
+  enforces the cap (defense in depth), so this is not a substitute for it.
+- 2026-08-21: The keyword layer currently fires 0 times — error_reason and signature
+  resolve every clean record first. Kept as a narrow, high-precision fallback (the
+  plan names keywords as part of the rules table), NOT broadened: loose free-text
+  matching is the LLM tail's job and doing it here would silently mislabel records.
+  If it still never fires by Phase 7, consider deleting it as dead code.
+- 2026-08-21: The ambiguous `exhausted` fixture carries an explicit retry_count=1
+  override. Without it, rule #1 would resolve it deterministically and the LLM tail
+  would shrink to 3 records. Its description refers to out-of-band dunning outreach,
+  not payment retries, so retry_count=1 is honest rather than contradictory.
 
 ## Module status
 | Module               | State        | Notes                                             |
 |----------------------|--------------|----------------------------------------------------|
 | llm.py               | implemented  | complete() + cache; live-verified against Groq    |
 | generate_fixtures.py | implemented  | 50 seeded records; --n/--seed args for scaling    |
-| detect.py            | stub         | docstring only                                    |
-| diagnose.py          | stub         | docstring only                                    |
+| detect.py            | implemented  | load_failures() + load_ground_truth() (metrics)   |
+| diagnose.py          | implemented  | rules table; returns needs_llm for the tail       |
 | decide.py            | stub         | docstring only                                    |
 | gate.py              | stub         | docstring only                                    |
 | execute.py           | stub         | docstring only                                    |
@@ -81,5 +98,8 @@ See plan.md for the full phase plan. This file tracks STATE.
 - Phase 0 sanity check (once keys are set): a short script calling
   `core.llm.complete("You are terse.", "Say OK")` twice — second call should hit
   `llm_cache.json` with no API call.
-- Later phases: `python fixtures/generate_fixtures.py`, `python run_batch.py`,
-  `pytest`.
+- Regenerate fixtures: `python fixtures/generate_fixtures.py` (add `--n 500` to scale).
+- Phase 2 check: `python scripts/check_diagnose.py` — prints the confusion count and
+  exits non-zero if any record is misclassified, any eval field leaks, or the
+  needs_llm tail is not exactly 4.
+- Later phases: `python run_batch.py`, `pytest`.
