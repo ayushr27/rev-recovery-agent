@@ -13,6 +13,12 @@ COOLING_OFF_HOURS = {
     "insufficient_funds": 24,
 }
 
+# Applied to categories with no entry above (dead_instrument, exhausted). Their
+# interventions are a payment link or a human escalation rather than a retry, but they
+# still must not re-fire at will — don't re-send the same link to a customer twice in
+# a day. Also the window used to bucket idempotency keys for those actions.
+DEFAULT_COOLING_OFF_HOURS = 24
+
 # RBI Digital Payments E-mandate Framework (2026): recurring transactions above this
 # amount require additional-factor authentication and cannot be silently reattempted.
 AFA_THRESHOLD_PAISE = 1_500_000  # ₹15,000

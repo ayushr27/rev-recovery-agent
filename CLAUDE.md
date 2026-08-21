@@ -5,22 +5,23 @@ Razorpay Buildathon Track 03 — bounded failed-payment recovery agent.
 See plan.md for the full phase plan. This file tracks STATE.
 
 ## Current status
-- Active phase: 2 — Detect + Diagnose (DONE, pending user confirmation to advance)
-- Last session ended: 2026-08-21 — `core/detect.py` (load_failures strips eval-only
-  fields; load_ground_truth is metrics-only) and `core/diagnose.py` (rules table:
-  retry_cap → error_reason → signature → keyword → needs_llm) implemented.
-  `scripts/check_diagnose.py` reports 46/46 resolved correctly, 0 misclassified,
-  exactly 4 deferred to needs_llm, 0 eval-field leakage. The 4 ambiguous records span
-  all four categories (one each). LLM still stubbed — not called anywhere yet.
-- Next action: get user confirmation that Phase 2's Definition of Done passes, then
-  start Phase 3 (Decide + Gate — the spine; spend the most time here). Phase 3 needs
-  pytest unit tests proving each stopping rule fires.
+- Active phase: 3 — Decide + Gate (DONE, pending user confirmation to advance)
+- Last session ended: 2026-08-21 — `core/decide.py` (four-category → Intervention,
+  fails closed on unknown/needs_llm) and `core/gate.py` (the spine) implemented.
+  Gate enforces: dead-instrument-never-retried, retry cap (record.retry_count +
+  state attempts), RBI AFA conversion, idempotency key, cooling-off, global budget —
+  each returning a structured reason. 33 pytest tests pass. Whole decision core
+  (diagnose/decide/gate) verified I/O-free by grep. LLM still not called anywhere.
+- Next action: get user confirmation that Phase 3's Definition of Done passes, then
+  start Phase 4 (Execute + Explain + Audit). Phase 4 must prove the real Razorpay
+  test-mode payment-link call works and degrades cleanly when keys are absent — the
+  plan warns explicitly not to leave API auth until the final days.
 
 ## Phase checklist
 - [x] Phase 0 — Scaffold & config
 - [x] Phase 1 — Fixtures
 - [x] Phase 2 — Detect + Diagnose (rules, LLM stubbed)
-- [ ] Phase 3 — Decide + Gate (the spine)
+- [x] Phase 3 — Decide + Gate (the spine)
 - [ ] Phase 4 — Execute + Explain + Audit
 - [ ] Phase 5 — LLM diagnosis tail + Orchestrate + Metrics
 - [ ] Phase 6 — Minimal UI
@@ -59,6 +60,26 @@ See plan.md for the full phase plan. This file tracks STATE.
   plan names keywords as part of the rules table), NOT broadened: loose free-text
   matching is the LLM tail's job and doing it here would silently mislabel records.
   If it still never fires by Phase 7, consider deleting it as dead code.
+- 2026-08-21: **plan.md self-conflict resolved in favour of the design rule.** Line 267
+  says gate.py "Reads/writes run_state.json"; lines 70–76 say the decision core must
+  have NO I/O and call that the whole scalability story. Chose the design rule:
+  `gate.evaluate()` is pure over (record, category, intervention, state, now) and
+  `gate.commit()` mutates only an in-memory dict. run_state.json load/save belongs to
+  run_batch.py (Phase 5). `now` is passed in, never read from the clock, so the gate
+  stays deterministic. A test asserts evaluate() does not mutate state.
+- 2026-08-21: Gate rule order is dead_instrument → retry cap → AFA convert → idempotency
+  → cooling-off → global budget. Safety invariants first (no remaining quota makes a
+  dead-instrument retry valid); the action type is settled by the AFA conversion BEFORE
+  the idempotency key is derived, so a converted action dedupes as the auth link it
+  became. Idempotency is checked before cooling-off because it is the more specific
+  diagnosis of the same situation.
+- 2026-08-21: AFA is modelled as decision=CONVERT (not a plain refusal) — the retry is
+  refused but an auth link still goes out, so the customer is not abandoned. Metrics
+  counts afa_gated off decision==CONVERT + reason==AFA_REQUIRED_ABOVE_THRESHOLD.
+  Boundary is strictly `>` AFA_THRESHOLD_PAISE; exactly ₹15,000 still retries.
+- 2026-08-21: Added `config.DEFAULT_COOLING_OFF_HOURS = 24` for categories absent from
+  COOLING_OFF_HOURS (dead_instrument, exhausted) — needed so their actions still get an
+  idempotency window rather than being re-firable at will.
 - 2026-08-21: The ambiguous `exhausted` fixture carries an explicit retry_count=1
   override. Without it, rule #1 would resolve it deterministically and the LLM tail
   would shrink to 3 records. Its description refers to out-of-band dunning outreach,
@@ -71,8 +92,8 @@ See plan.md for the full phase plan. This file tracks STATE.
 | generate_fixtures.py | implemented  | 50 seeded records; --n/--seed args for scaling    |
 | detect.py            | implemented  | load_failures() + load_ground_truth() (metrics)   |
 | diagnose.py          | implemented  | rules table; returns needs_llm for the tail       |
-| decide.py            | stub         | docstring only                                    |
-| gate.py              | stub         | docstring only                                    |
+| decide.py            | implemented  | 4-category table; fails closed on unknown         |
+| gate.py              | implemented  | 6 bounds, structured reasons; pure, 33 tests pass |
 | execute.py           | stub         | docstring only                                    |
 | explain.py           | stub         | docstring only                                    |
 | audit.py             | stub         | docstring only                                    |
@@ -91,6 +112,12 @@ See plan.md for the full phase plan. This file tracks STATE.
   real test-mode payment-link call, not a Phase 0/1 concern).
 - SCENARIOS.md "successful recovery" row is still TBD — needs Phase 4's seeded
   execute() outcome before a payment id can be picked.
+- Idempotency never fires naturally within a single batch run (50 unique payment ids,
+  each seen once). It fires on a SECOND run against a warm run_state.json — which is
+  itself a strong demo beat: run the batch twice, watch the second run refuse
+  everything as DUPLICATE_ACTION_IN_WINDOW. Worth showing in Phase 7.
+- run_state.json load/save is NOT written yet — it lands in run_batch.py in Phase 5.
+  Until then the gate is exercised only by tests, which build state dicts inline.
 
 ## How to run (keep current as it changes)
 - `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
@@ -102,4 +129,5 @@ See plan.md for the full phase plan. This file tracks STATE.
 - Phase 2 check: `python scripts/check_diagnose.py` — prints the confusion count and
   exits non-zero if any record is misclassified, any eval field leaks, or the
   needs_llm tail is not exactly 4.
-- Later phases: `python run_batch.py`, `pytest`.
+- Tests: `pytest tests/ -q` (33 tests: decide table + all six gate bounds).
+- Later phases: `python run_batch.py`.
