@@ -135,6 +135,15 @@ export default function Home() {
 
       <div className="wrap">
         <table>
+          <colgroup>
+            <col className="c-payment" />
+            <col className="c-category" />
+            <col className="c-source" />
+            <col className="c-intervention" />
+            <col className="c-gate" />
+            <col className="c-outcome" />
+            <col className="c-rationale" />
+          </colgroup>
           <thead>
             <tr>
               <th>Payment</th>

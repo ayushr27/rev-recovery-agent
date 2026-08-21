@@ -119,10 +119,37 @@ h1 {
   border-radius: 10px;
 }
 
+/* Fixed layout with explicit column widths. Without it the browser sizes columns
+   from content, and the long provider refs push the table past its container so the
+   rationale — the whole point of the trail — gets clipped mid-sentence. */
 table {
   border-collapse: collapse;
   width: 100%;
+  min-width: 900px; /* below this the wrapper scrolls rather than squashing */
+  table-layout: fixed;
   font-size: 0.86rem;
+}
+
+col.c-payment {
+  width: 12%;
+}
+col.c-category {
+  width: 12%;
+}
+col.c-source {
+  width: 7%;
+}
+col.c-intervention {
+  width: 12%;
+}
+col.c-gate {
+  width: 14%;
+}
+col.c-outcome {
+  width: 15%;
+}
+col.c-rationale {
+  width: 28%;
 }
 
 th {
@@ -162,10 +189,12 @@ tr.escalated {
   background: rgba(88, 166, 255, 0.07);
 }
 
+/* Provider refs are long and have no spaces, so they must be allowed to break —
+   nowrap here is what forced the table wider than its container. */
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.82rem;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .badge {
@@ -219,7 +248,11 @@ tr.escalated {
 
 .rationale {
   color: var(--muted);
-  min-width: 300px;
+}
+
+.reason,
+th {
+  overflow-wrap: anywhere;
 }
 
 .real {
