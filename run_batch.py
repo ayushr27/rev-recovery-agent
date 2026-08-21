@@ -17,7 +17,8 @@ import time
 from pathlib import Path
 
 import config
-from core import audit, decide, detect, diagnose, execute, explain, gate
+from core import audit, decide, detect, diagnose, execute, explain, gate, llm
+from report import metrics
 
 STATE_PATH = Path(__file__).resolve().parent / config.RUN_STATE_PATH
 
@@ -32,17 +33,22 @@ def save_state(state):
     STATE_PATH.write_text(json.dumps(state, indent=2) + "\n")
 
 
-def process(record, state, now, use_real_api=False, use_llm_explain=None):
+def process(record, state, now, use_real_api=False, use_llm_explain=None, use_llm_diagnose=True):
     """One payment through the whole loop. Returns the audit entry."""
     category = diagnose.diagnose(record)
     source = "rules"
 
     if category == diagnose.NEEDS_LLM:
-        # PHASE 5 REPLACES THIS. Until the LLM diagnosis tail is wired, an
-        # unresolvable record is escalated to a human rather than guessed at — the
-        # same fail-closed choice decide() makes for an unknown label.
-        category = "exhausted"
-        source = "unresolved_pending_llm"
+        # The rules table declined to classify this one. Hand it to the model,
+        # constrained to the four labels; anything else falls back to escalation so an
+        # out-of-spec answer becomes a human's problem, never a wrong action.
+        if use_llm_diagnose:
+            verdict = llm.classify_failure(record, diagnose.CATEGORIES)
+            category = verdict["category"]
+            source = "llm" if verdict["valid"] else "llm_invalid_defaulted"
+        else:
+            category = "exhausted"
+            source = "unresolved"
 
     intervention = decide.decide(category)
     gate_result = gate.evaluate(record, category, intervention, state, now)
@@ -86,6 +92,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--resume", action="store_true", help="carry run_state.json forward")
     parser.add_argument("--no-explain", action="store_true", help="skip LLM rationales")
+    parser.add_argument("--no-llm", action="store_true", help="skip LLM entirely (rules only)")
+    parser.add_argument(
+        "--n",
+        type=int,
+        help="generate a scaled batch of N records in memory instead of reading fixtures",
+    )
     parser.add_argument(
         "--real-link",
         metavar="PAYMENT_ID",
@@ -93,7 +105,18 @@ def main():
     )
     args = parser.parse_args()
 
-    records = detect.load_failures()
+    if args.n:
+        # Same seeded mix, scaled. Kept in memory so a volume run never overwrites the
+        # committed 50-record fixture.
+        from fixtures.generate_fixtures import generate
+
+        raw = generate(n=args.n)
+        records = detect.strip_eval_fields(raw)
+        ground_truth = detect.ground_truth_from(raw)
+    else:
+        records = detect.load_failures()
+        ground_truth = detect.load_ground_truth()
+
     state = load_state(args.resume)
     audit.reset()
     now = int(time.time())
@@ -105,17 +128,15 @@ def main():
             state,
             now,
             use_real_api=(record["id"] == args.real_link),
-            use_llm_explain=False if args.no_explain else None,
+            use_llm_explain=False if (args.no_explain or args.no_llm) else None,
+            use_llm_diagnose=not args.no_llm,
         )
         audit.append(entry)
         entries.append(entry)
 
     save_state(state)
 
-    # Phase 5 replaces this with report/metrics.py and the honest denominator.
-    allowed = [e for e in entries if e["gate_result"] in (gate.ALLOW, gate.CONVERT)]
-    captured = [e for e in entries if e["execution_result"]["status"] == execute.CAPTURED]
-    print(f"Processed {len(entries)} payments; {len(allowed)} actioned, {len(captured)} captured.")
+    metrics.render(metrics.report(entries, ground_truth))
     print(f"Audit trail: {config.AUDIT_LOG_PATH}  |  state: {config.RUN_STATE_PATH}")
 
 

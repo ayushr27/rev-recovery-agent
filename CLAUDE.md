@@ -5,18 +5,17 @@ Razorpay Buildathon Track 03 — bounded failed-payment recovery agent.
 See plan.md for the full phase plan. This file tracks STATE.
 
 ## Current status
-- Active phase: 4 — Execute + Explain + Audit (DONE, pending user confirmation)
-- Last session ended: 2026-08-21 — `execute.py` (seeded hash-based outcomes + real
-  Razorpay test-mode link path), `explain.py` (LLM rationale, template fallback),
-  `audit.py` (JSONL trail), and a working `run_batch.py` implemented. Full batch runs
-  clean: 50 payments, 20 captured, 4 AFA converts, 10 escalations, every row carrying
-  a rationale and idempotency key. Real test-mode link `plink_TSNNNlcJUtCEV6` created
-  and fetched back. 44 pytest tests pass. Warm llm_cache.json → 1m51s run drops to
-  0.08s with ZERO API calls.
-- Next action: get user confirmation that Phase 4's Definition of Done passes, then
-  start Phase 5 (LLM diagnosis tail + metrics). Phase 5 must replace the
-  `unresolved_pending_llm` placeholder in run_batch.process(), add `--n` batch sizing,
-  and build report/metrics.py with the honest recoverable denominator.
+- Active phase: 5 — LLM diagnosis tail + Orchestrate + Metrics (DONE, pending
+  user confirmation)
+- Last session ended: 2026-08-21 — `llm.classify_failure()` wired in (constrained to
+  the four labels, out-of-spec answers default to escalate), `--n` scaled batches,
+  and `report/metrics.py` with the honest recoverable denominator. Headline run:
+  **21 of 32 recoverable recovered (65.6%), Rs 141,801.84 of Rs 460,979.07**,
+  diagnosis accuracy 98% (rules 46/46, LLM 3/4), false_intervention 0. Reproducible
+  across runs; warm cache → 0.06s, zero API calls. 56 pytest tests pass.
+- Next action: get user confirmation that Phase 5's Definition of Done passes, then
+  Phase 6 (minimal Next.js UI — LAST, do not start early). If time is short the plan
+  says cut UI polish before anything else; the gate and honest metrics already exist.
 
 ## Phase checklist
 - [x] Phase 0 — Scaffold & config
@@ -24,7 +23,7 @@ See plan.md for the full phase plan. This file tracks STATE.
 - [x] Phase 2 — Detect + Diagnose (rules, LLM stubbed)
 - [x] Phase 3 — Decide + Gate (the spine)
 - [x] Phase 4 — Execute + Explain + Audit
-- [ ] Phase 5 — LLM diagnosis tail + Orchestrate + Metrics
+- [x] Phase 5 — LLM diagnosis tail + Orchestrate + Metrics
 - [ ] Phase 6 — Minimal UI
 - [ ] Phase 7 — Demo, README, polish
 
@@ -81,6 +80,25 @@ See plan.md for the full phase plan. This file tracks STATE.
 - 2026-08-21: Added `config.DEFAULT_COOLING_OFF_HOURS = 24` for categories absent from
   COOLING_OFF_HOURS (dead_instrument, exhausted) — needed so their actions still get an
   idempotency window rather than being re-firable at will.
+- 2026-08-21: LLM diagnosis lives in `llm.classify_failure()`, NOT in diagnose.py —
+  the plan says needs_llm records "go to core/llm.py", and it keeps diagnose.py pure.
+  The four labels are passed in by the caller so llm.py stays domain-agnostic. A
+  label outside the four is discarded and defaults to escalate, recorded as source
+  `llm_invalid_defaulted` so metrics counts it rather than hiding it.
+- 2026-08-21: **The LLM prompt is NOT tuned to fix its one miss** (pay_TEST00036,
+  said dead_instrument, truth exhausted). With n=4 ambiguous records, editing the
+  prompt until that case passes is tuning on the test set — the exact leakage the
+  plan warns about. 3/4 is reported honestly instead. Note the miss degraded safely:
+  send_link, not a retry, so false_intervention stayed 0.
+- 2026-08-21: metrics.py reports `refused_by_reason` and a `budget_exhausted` flag.
+  Found via the 500-record run: 400 refusals from GLOBAL_ATTEMPT_BUDGET dropped the
+  rate to 12.2%, which reads as agent failure unless the report says the cap was hit.
+  A bound doing its job must not look like a bad number.
+- 2026-08-21: AFA-gated payments are broken out of the recovery rate rather than
+  buried in it. They ARE recoverable and were deliberately not retried, so counting
+  them as plain misses would misreport compliance as failure.
+- 2026-08-21: `--n` builds the scaled batch IN MEMORY rather than overwriting the
+  committed 50-record fixture, so a volume demo never disturbs the reproducible run.
 - 2026-08-21: **run_batch.py built in Phase 4, not Phase 5.** Phase 4's DoD requires "a
   full batch run writes a complete audit_log.jsonl", which needs the loop. Ordering
   shift only; Phase 5 still owns the LLM diagnosis tail, metrics and --n.
@@ -114,8 +132,8 @@ See plan.md for the full phase plan. This file tracks STATE.
 | execute.py           | implemented  | seeded outcomes + real Razorpay test-mode path    |
 | explain.py           | implemented  | LLM rationale, deterministic template fallback    |
 | audit.py             | implemented  | JSONL trail, 14 fields per decision               |
-| metrics.py           | stub         | docstring only — Phase 5                          |
-| run_batch.py         | implemented  | full loop; LLM diagnosis tail pending (Phase 5)   |
+| metrics.py           | implemented  | honest denominator + safety + budget flag         |
+| run_batch.py         | implemented  | full loop incl. LLM tail, --n, metrics             |
 | config.py            | implemented  | all Phase 0 constants + runtime file paths        |
 | app/ (UI)            | not started  | Phase 6 — do not start early                      |
 
@@ -127,10 +145,13 @@ See plan.md for the full phase plan. This file tracks STATE.
   since it already lives at the repo root.
 - Razorpay test-mode key was added to `.env` but not yet exercised (that's Phase 4's
   real test-mode payment-link call, not a Phase 0/1 concern).
-- `run_batch.process()` still forces the 4 needs_llm records to `exhausted` with
-  source `unresolved_pending_llm`. **Phase 5 must replace this** — it is a fail-closed
-  placeholder, and it currently understates diagnosis accuracy (those 4 records are
-  really bank_downtime / insufficient_funds / dead_instrument / exhausted, one each).
+- LLM diagnosis accuracy is 3/4 on a sample of FOUR. That is a meaningless denominator
+  statistically — do not quote "75% LLM accuracy" as though it were measured. Say
+  "3 of the 4 ambiguous records" and note the sample size. Same caution applies to the
+  98% overall figure, which is dominated by the 46 rules-resolved records.
+- The simulated success rates (bank_downtime 0.75, insufficient_funds 0.45) are
+  plausible guesses, NOT measured from real data. The recovery rate inherits that
+  assumption — say so in the README rather than implying it is an empirical result.
 - Several gate bounds are backstops that never fire in a fresh run, by design:
   DEAD_INSTRUMENT_NEVER_RETRIED (decide() never proposes a retry for a dead card) and
   GLOBAL_BUDGET_EXHAUSTED (50 payments vs a 100 budget). RETRY_CAP_EXCEEDED also does
@@ -153,8 +174,11 @@ See plan.md for the full phase plan. This file tracks STATE.
 - Phase 2 check: `python scripts/check_diagnose.py` — prints the confusion count and
   exits non-zero if any record is misclassified, any eval field leaks, or the
   needs_llm tail is not exactly 4.
-- Tests: `pytest tests/ -q` (44 tests: decide, all six gate bounds, execution honesty).
-- Full batch: `python run_batch.py` (fresh state, LLM rationales from cache).
+- Tests: `pytest tests/ -q` (56 tests: decide, six gate bounds, execution honesty,
+  metrics arithmetic).
+- Full batch: `python run_batch.py` (fresh state, LLM from cache, prints the report).
   - `--no-explain` skips LLM rationales (template fallback) for fast dev runs.
+  - `--no-llm` skips the LLM entirely (rules only; needs_llm records escalate).
+  - `--n 500` runs a scaled in-memory batch — the volume demo.
   - `--resume` carries run_state.json forward — this is the idempotency demo.
   - `--real-link pay_TEST00011` makes ONE real Razorpay test-mode payment link.

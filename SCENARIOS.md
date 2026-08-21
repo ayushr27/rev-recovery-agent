@@ -23,7 +23,13 @@ correct defence-in-depth, not dead code (every one is proven by a test in
 - 4 × `AFA_REQUIRED_ABOVE_THRESHOLD` — recurring debits above ₹15,000 converted to
   `requires_afa` instead of silently retried. The strongest beat: domain knowledge,
   not a generic guardrail.
-- 10 × escalation — `exhausted` payments handed to a human rather than retried.
+- 6 × escalation — `exhausted` payments handed to a human rather than retried.
+
+**A 500-record run** (`python run_batch.py --n 500 --no-llm`) shows the global budget
+firing: 400 × `GLOBAL_BUDGET_EXHAUSTED` once 100 actions are spent. The report flags
+this explicitly so the lower recovery rate reads as the bound working rather than the
+agent failing. A good answer to "what happens at volume?" — it stops, on purpose, and
+says so.
 
 **Running it twice** (`python run_batch.py` then `python run_batch.py --resume`) shows
 the whole batch refuse: 38 × `DUPLICATE_ACTION_IN_WINDOW` and 12 × `RETRY_CAP_EXCEEDED`,

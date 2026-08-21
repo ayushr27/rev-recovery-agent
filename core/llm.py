@@ -69,6 +69,61 @@ def _call_gemini(system: str, user: str) -> str:
 _PROVIDERS = {"groq": _call_groq, "gemini": _call_gemini}
 
 
+_CLASSIFY_SYSTEM = """You classify failed payment records into exactly one recovery category.
+
+Reply with ONLY the category label in lowercase. No punctuation, no explanation.
+
+bank_downtime - a transient failure at the bank, gateway or network. The instrument is
+fine and retrying later will probably succeed.
+insufficient_funds - the customer's account did not have the balance to cover it. The
+instrument is fine; a retry may succeed once they top up.
+dead_instrument - the instrument itself is permanently unusable: expired, blocked,
+deactivated, cancelled or invalid. It must never be retried.
+exhausted - attempts are used up, or the case has been given up on and needs a human.
+
+Weigh the description text over the error codes when they disagree; the codes on these
+records are sometimes wrong."""
+
+
+def _classify_prompt(record) -> str:
+    """Stable prompt text — no timestamps, so repeated runs hit the cache."""
+    fields = (
+        "method",
+        "error_code",
+        "error_source",
+        "error_step",
+        "error_reason",
+        "error_description",
+        "retry_count",
+    )
+    return "\n".join(f"{field}: {record.get(field)}" for field in fields)
+
+
+def classify_failure(record, categories, fallback="exhausted") -> dict:
+    """Resolve a record the rules table could not, constrained to `categories`.
+
+    Returns {"category", "valid", "raw"}. Anything the model says that is not exactly
+    one of the four labels is discarded and `fallback` used instead — an out-of-spec
+    label means a human should look, not that the agent should guess an action. `valid`
+    is reported so metrics can count these honestly rather than hiding them.
+    """
+    try:
+        raw = complete(_CLASSIFY_SYSTEM, _classify_prompt(record))
+    except Exception as exc:  # noqa: BLE001 - fail closed, never abort the batch
+        return {"category": fallback, "valid": False, "raw": f"<error: {exc}>"}
+
+    label = raw.strip().lower().strip(".`'\"* \n")
+    if label not in categories:
+        # Tolerate a model that wraps the label in a sentence, but only when exactly
+        # one category is named — two candidates means it did not actually decide.
+        named = [c for c in categories if c in label]
+        label = named[0] if len(named) == 1 else None
+
+    if label not in categories:
+        return {"category": fallback, "valid": False, "raw": raw}
+    return {"category": label, "valid": True, "raw": raw}
+
+
 def complete(system: str, user: str) -> str:
     """Return an LLM completion for (system, user), served from cache when possible."""
     cache = _load_cache()

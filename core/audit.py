@@ -37,6 +37,10 @@ def entry(record, category, source, intervention, gate_result, execution_result,
         "category": category,
         "source": source,
         "intervention": intervention.action,
+        # What was actually fired, which is not always what was planned — the gate can
+        # convert a retry into an authentication link, or refuse it outright. Metrics
+        # needs this to tell a planned action from an executed one.
+        "action_taken": gate_result.action,
         "gate_result": gate_result.decision,
         "refusal_reason": gate_result.reason,
         "idempotency_key": gate_result.idempotency_key,
