@@ -1,9 +1,11 @@
-python-dotenv
-groq
-razorpay
-fastapi
-uvicorn
-pytest
+# Standard library does most of the work. These are the only real dependencies.
+python-dotenv        # reads .env
+groq                 # LLM provider (lazily imported; only needed on a cache miss)
+razorpay             # test-mode payment links (lazily imported; only for --real-link)
+pytest               # tests
 
-# Only needed if LLM_PROVIDER=gemini in .env:
+# Only if you set LLM_PROVIDER=gemini in .env:
 # google-generativeai
+
+# NOTE: a run against the committed llm_cache.json makes no API calls at all, so
+# neither an API key nor a live provider is needed to reproduce the reported numbers.
