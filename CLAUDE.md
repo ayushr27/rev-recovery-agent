@@ -5,7 +5,15 @@ Razorpay Buildathon Track 03 — bounded failed-payment recovery agent.
 See plan.md for the full phase plan. This file tracks STATE.
 
 ## Current status
-- Active phase: 6 — Minimal UI (DONE, pending user confirmation)
+- Active phase: 7 — DONE. All phases complete, 12 days before the Sept 3 target.
+- **Fresh-clone gate PASSES (verified twice, 2026-08-22).** Cloned into an empty dir
+  with NO `.env` and no API keys: `pip install -r requirements.txt && python
+  run_batch.py` reproduces Rs 141,801.84 / 21 of 32 / 98.0% exactly, and 56 tests pass.
+  Works keyless because `llm.complete()` checks the committed cache before it ever
+  looks for a provider — so the demo is hermetic by construction, not by luck.
+- Every figure in README.md was checked against metrics.json programmatically before
+  being written. If the fixtures or success rates ever change, re-verify them.
+- Previous phase note: Minimal UI (Phase 6)
 - Last session ended: 2026-08-21 — Next.js 16.3.2 / React 19.2.8 single page in `app/`.
   Server Component reads `metrics.json` + `audit_log.jsonl` from the repo root at
   request time; headline number, summary strip, and the audit table with refusals /
@@ -16,9 +24,8 @@ See plan.md for the full phase plan. This file tracks STATE.
   after fixing a rationale-column clipping bug that only screenshots revealed —
   HTML-level checks passed while every explanation was cut off mid-sentence on screen.
   Lesson: for UI work, structural verification is not sufficient; get eyes on it.
-- Next action: get user confirmation that Phase 6's Definition of Done passes, then
-  Phase 7 (README incl. the regulatory-grounding + scalability paragraphs, demo
-  recording, submission). Phase 7 is the last one.
+- Next action: **all seven phases are complete.** Remaining work is the human's:
+  record the demo (running order at the top of SCENARIOS.md) and submit.
 
 ## Phase checklist
 - [x] Phase 0 — Scaffold & config
@@ -28,7 +35,7 @@ See plan.md for the full phase plan. This file tracks STATE.
 - [x] Phase 4 — Execute + Explain + Audit
 - [x] Phase 5 — LLM diagnosis tail + Orchestrate + Metrics
 - [x] Phase 6 — Minimal UI
-- [ ] Phase 7 — Demo, README, polish
+- [x] Phase 7 — Demo, README, polish
 
 ## Decisions log (append-only — never rewrite history)
 - 2026-08-20: Built directly at the repo root (rev-recovery-agent/) rather than
