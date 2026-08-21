@@ -12,7 +12,10 @@ See plan.md for the full phase plan. This file tracks STATE.
   conversions / escalations colour-coded. Verified: typecheck clean, production build
   clean, HTTP 200, correct figures rendered (Rs 1,41,801.84 in en-IN grouping), 50
   rows, stylesheet served with all rules. On `--resume` all 50 rows render as refused
-  with their reason codes visible.
+  with their reason codes visible. **Visually confirmed by the user on 2026-08-22**
+  after fixing a rationale-column clipping bug that only screenshots revealed —
+  HTML-level checks passed while every explanation was cut off mid-sentence on screen.
+  Lesson: for UI work, structural verification is not sufficient; get eyes on it.
 - Next action: get user confirmation that Phase 6's Definition of Done passes, then
   Phase 7 (README incl. the regulatory-grounding + scalability paragraphs, demo
   recording, submission). Phase 7 is the last one.
