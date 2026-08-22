@@ -16,8 +16,11 @@ from core import gate, llm
 _SYSTEM = (
     "You explain automated payment-recovery decisions to a finance operations reader. "
     "Reply with exactly one sentence, under 30 words, plain language, no preamble, no "
-    "bullet points. State what was done and why. If an action was refused, say plainly "
-    "that it was refused and name the reason."
+    "bullet points. Write in the past tense about what already happened. State what was "
+    "done and why. If an action was refused or converted, say plainly what was not done "
+    "and name the reason. Never say that the gate, the rules, or the system allowed, "
+    "permitted or approved the action — the reader can see the decision and needs the "
+    "reason behind it, not a restatement that it went ahead."
 )
 
 # Human-readable glosses so the model is told what a code means rather than guessing.

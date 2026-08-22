@@ -119,6 +119,25 @@ See plan.md for the full phase plan. This file tracks STATE.
   to stop pursuing ("collections has suspended billing") as dead_instrument rather than
   exhausted. Seen in pay_EVAL00025 and pay_TEST00036. Both degrade safely — escalate
   becomes send_link — so unsafe errors are 0. Characterised and contained, not fixed.
+- 2026-08-22: **The explain prompt was changed and the cache regenerated (50 live calls).**
+  This is the ONE prompt that may be edited; `llm._CLASSIFY_SYSTEM` stays frozen and is now
+  hash-pinned by `tests/test_headline.py`. Reason: 9 of 50 rationales ended in circular
+  filler ("…and the gate allowed the action"), which on dead-instrument rows reads as the
+  opposite of the story, plus one future-tense slip on a captured payment. `_SYSTEM` now
+  forbids mentioning the gate/rules/system and demands past tense; filler went 9 → 1, and
+  that one is about the customer continuing, not the gate. Procedure, if it is ever done
+  again: edit, re-run with `.venv/bin/python` (system `python` here is anaconda 3.13 with
+  NO groq, so it silently falls back to templates), confirm all 50 explain keys are cached,
+  then re-run the keyless fresh-clone gate. Old entries were left in place — the cache only
+  grows, and deleting an entry is how you break a clone you cannot test.
+- 2026-08-22: **`--now <epoch>` added, and the `--resume` beat now requires it.** The
+  idempotency demo only held within the cooling-off window: verified at +2h1m, 14 actions
+  fire (Rs 225,806.76); at +25h, 38 fire. That is the gate working — a new window is a new
+  attempt — but the docs claimed "all 50 refused" unconditionally. Pin both runs to the same
+  `--now` and the 38/12 split is reproducible. Also: `load_state()` resets `global_actions`
+  on resume, because config documents it as a per-run cap while the code made it a lifetime
+  one; local state had reached 50/100 and the next resumed run would have refused everything
+  as GLOBAL_BUDGET_EXHAUSTED, which is indistinguishable from the agent working.
 - 2026-08-22: **"dead — not pursued" was factually wrong and is now "never retried"**
   (UI strip + metrics.render + SCENARIOS beat 1). All 18 non-recoverable payments ARE
   actioned — verified from the audit log: 12 dead_instrument → send_link, 6 exhausted →
