@@ -6,8 +6,10 @@ Roughly four minutes. Every step runs from the committed cache — **zero live L
 so there is no rate-limit or outage risk on stage.
 
 1. **The number.** `python run_batch.py` → the report. Lead with the honest denominator:
-   21 of **32 recoverable**, not 21 of 50. Point at "18 truly dead — correctly not
-   pursued" and say why inflating the denominator would be the easy lie.
+   21 of **32 recoverable**, not 21 of 50. Point at "18 truly dead — correctly never
+   retried" and say why inflating the denominator would be the easy lie. Be precise if
+   asked: those 18 are excluded from the *rate*, not abandoned — 12 get a recovery link
+   and 6 escalate to a human. Every one is actioned; none is retried.
 2. **Say the baseline out loud.** Without the agent, 0 recovered and all ₹4,60,979.07
    stays failed. That is what the recovery is measured against.
 3. **Diagnosis accuracy, in the same breath.** 98% overall, rules 46/46, LLM 3 of 4.

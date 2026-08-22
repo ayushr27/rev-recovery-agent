@@ -119,6 +119,15 @@ See plan.md for the full phase plan. This file tracks STATE.
   to stop pursuing ("collections has suspended billing") as dead_instrument rather than
   exhausted. Seen in pay_EVAL00025 and pay_TEST00036. Both degrade safely — escalate
   becomes send_link — so unsafe errors are 0. Characterised and contained, not fixed.
+- 2026-08-22: **"dead — not pursued" was factually wrong and is now "never retried"**
+  (UI strip + metrics.render + SCENARIOS beat 1). All 18 non-recoverable payments ARE
+  actioned — verified from the audit log: 12 dead_instrument → send_link, 6 exhausted →
+  escalate, 0 with action_taken None. The old label contradicted the table printed
+  directly beneath it. This departs from plan.md's literal phrase ("correctly not
+  pursued", lines 58 and 570), deliberately: the plan's actual rule is about the
+  DENOMINATOR — dead failures are excluded from the rate and never hidden — and "never
+  retried" states that precisely while "not pursued" claims something the trail
+  disproves. plan.md is left unedited as the historical spec.
 - 2026-08-21: UI is Next.js **16.3.2** / React **19.2.8** (checked against npm, not
   assumed). Scaffolded with `create-next-app --empty --no-tailwind --src-dir`. NOTE:
   Next 16 generates a global `LayoutProps<"/">` type for the root layout — do not

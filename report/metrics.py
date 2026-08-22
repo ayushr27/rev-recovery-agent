@@ -6,7 +6,9 @@ Three deliberate choices about honesty:
 
 1. The denominator is *recoverable*, not *total*. Dividing by total would inflate the
    rate by counting dead cards the agent correctly refused to chase. Dead failures are
-   reported as "correctly not pursued", never hidden.
+   reported as "correctly never retried", never hidden. Note the precise claim: all 18
+   are still *actioned* (12 get a recovery link, 6 escalate to a human) — what they
+   never get is a retry. Saying "not pursued" would contradict the audit trail.
 2. Diagnosis accuracy is reported alongside the recovery rate, always. A recovery rate
    on its own is untrustworthy: a misclassification silently moves a payment between
    the recoverable and dead buckets and distorts the very denominator above.
@@ -117,7 +119,7 @@ def render(data):
         "",
         f"Payments processed      {data['total']}",
         f"  recoverable           {data['recoverable']}",
-        f"  truly dead            {data['dead']}  (correctly not pursued)",
+        f"  truly dead            {data['dead']}  (correctly never retried)",
         "",
         "-- Recovery ----------------------------------------------------------",
         f"Recovered               {data['recovered']} of {data['recoverable']} recoverable"

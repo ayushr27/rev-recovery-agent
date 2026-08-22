@@ -110,7 +110,7 @@ export default function Home() {
 
       <section className="strip">
         <Stat value={metrics.recoverable} label="recoverable" />
-        <Stat value={metrics.dead} label="dead — not pursued" />
+        <Stat value={metrics.dead} label="dead — never retried" />
         <Stat value={metrics.escalated} label="escalated" />
         <Stat value={metrics.refused} label="refused by gate" />
         <Stat value={metrics.afa_gated} label="AFA-gated" />
