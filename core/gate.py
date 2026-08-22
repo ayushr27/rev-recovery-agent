@@ -45,6 +45,7 @@ AFA_REQUIRED_ABOVE_THRESHOLD = "AFA_REQUIRED_ABOVE_THRESHOLD"
 DUPLICATE_ACTION_IN_WINDOW = "DUPLICATE_ACTION_IN_WINDOW"
 COOLING_OFF_ACTIVE = "COOLING_OFF_ACTIVE"
 GLOBAL_BUDGET_EXHAUSTED = "GLOBAL_BUDGET_EXHAUSTED"
+UNUSABLE_RECORD_FOR_RETRY = "UNUSABLE_RECORD_FOR_RETRY"
 
 # Decisions the gate can return.
 ALLOW = "allow"
@@ -73,6 +74,24 @@ def new_state():
 
 def _payment_state(state, payment_id):
     return state["payments"].get(payment_id, {"attempts": 0, "actions": []})
+
+
+def _has_usable_afa_fields(record):
+    """Can the AFA threshold rule actually be evaluated for this record?
+
+    Only `amount` and `payment_type` matter here, because they are the two inputs to the
+    one rule that models a regulation. A retry is refused outright when either is unusable
+    rather than being waved through on a default — for a debit, refusing on incomplete
+    information is the conservative direction, and it is visible in the trail.
+
+    Deliberately narrow: this is not general input validation. Everything else in a record
+    is either advisory or already handled, and validating it here would put schema
+    concerns in the decision core.
+    """
+    amount = record.get("amount")
+    if not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount <= 0:
+        return False
+    return isinstance(record.get("payment_type"), str) and record["payment_type"].strip()
 
 
 def cooling_off_hours(category):
@@ -145,11 +164,19 @@ def evaluate(record, category, intervention, state, now):
     #    requires additional-factor authentication and cannot be silently reattempted.
     #    The payment_type check is essential — the rule does not apply to one-time
     #    payments, and applying it to them would be factually wrong.
+    #    Both fields must be present and usable BEFORE the threshold test. `amount` was
+    #    read as `.get("amount", 0)`, so a missing field defaulted to zero, sat below every
+    #    threshold, and switched the regulatory rule off with no trace in the audit trail.
+    #    The absence of the field that decides a rule must never read as "rule does not
+    #    apply" — least of all on the one rule that models an actual regulation.
+    if action == decide.RETRY and not _has_usable_afa_fields(record):
+        return GateResult(REFUSE, None, UNUSABLE_RECORD_FOR_RETRY, None)
+
     decision, reason = ALLOW, None
     if (
         action == decide.RETRY
         and record.get("payment_type") == "recurring"
-        and record.get("amount", 0) > config.AFA_THRESHOLD_PAISE
+        and record["amount"] > config.AFA_THRESHOLD_PAISE
     ):
         action = decide.REQUIRES_AFA
         decision = CONVERT

@@ -235,6 +235,20 @@ def main():
         if payment_id not in known:
             parser.error(f"{payment_id} is not in this batch; nothing would be injected")
 
+    # --real-link used to accept anything. A typo, or an id whose action is a retry rather
+    # than a link, simply never matched: the run finished normally, the audit row said
+    # `simulated: true`, and you would believe a real call had fired. Validated here for
+    # the same reason --inject-misdiagnosis is — a demo claim must not fail silently.
+    if args.real_link:
+        if args.real_link not in known:
+            parser.error(f"--real-link {args.real_link} is not in this batch")
+        if args.n:
+            parser.error(
+                "--real-link cannot be combined with --n: a scaled batch reuses the same "
+                "payment ids with different amounts, so the real call would be made "
+                "against a different payment than the one you named"
+            )
+
     audit_path = config.INJECTED_AUDIT_LOG_PATH if injected else None
     if injected:
         _banner_open(injected, records)
@@ -270,6 +284,20 @@ def main():
         return
 
     save_state(state)
+
+    # Say plainly whether the real call happened. It can legitimately not happen — the
+    # gate may refuse the payment, or its action may be a retry, which has no real path —
+    # and silence there reads as success.
+    if args.real_link:
+        row = next(e for e in entries if e["payment_id"] == args.real_link)
+        if row["execution_result"]["simulated"]:
+            print(f"\nNOTE: --real-link {args.real_link} did NOT make a real call — "
+                  f"gate={row['gate_result']}, action={row['action_taken']}, "
+                  f"outcome={row['execution_result']['status']}.")
+        else:
+            print(f"\nREAL Razorpay test-mode call fired for {args.real_link}: "
+                  f"{row['execution_result']['status']} "
+                  f"{row['execution_result']['provider_ref'] or ''}".rstrip())
 
     data = metrics.report(entries, ground_truth)
     metrics.write(data)

@@ -6,6 +6,8 @@ against an intervention the agent would never actually produce.
 """
 
 import copy
+import json
+from pathlib import Path
 
 import pytest
 
@@ -132,6 +134,53 @@ def test_evidence_check_cannot_see_prose_only_evidence():
     result = run(prose_only, "bank_downtime")
     assert result.allowed
     assert result.action == decide.RETRY
+
+
+@pytest.mark.parametrize("amount", [None, 0, -1, "1500000", True])
+def test_a_retry_is_refused_when_the_amount_cannot_be_read(amount):
+    # `amount` used to be read as .get("amount", 0), so a missing or unusable value sat
+    # below every threshold and silently switched the AFA rule off. The absence of the
+    # field that decides a rule must not read as "the rule does not apply".
+    result = run(record(amount=amount), "insufficient_funds")
+    assert not result.allowed
+    assert result.reason == gate.UNUSABLE_RECORD_FOR_RETRY
+
+
+@pytest.mark.parametrize("payment_type", [None, "", "   "])
+def test_a_retry_is_refused_when_the_payment_type_cannot_be_read(payment_type):
+    # AFA applies to recurring debits only, so an unreadable payment_type means the rule
+    # cannot be evaluated — and a large recurring debit is what it exists to stop.
+    result = run(record(payment_type=payment_type, amount=8_000_000), "insufficient_funds")
+    assert not result.allowed
+    assert result.reason == gate.UNUSABLE_RECORD_FOR_RETRY
+
+
+def test_a_large_debit_cannot_slip_past_afa_by_omitting_its_amount():
+    # The failure this guard exists for: with no amount, the old default of 0 compared
+    # below the threshold and a recurring auto-debit was allowed to retry silently.
+    stripped = {"id": "pay_TEST00001", "payment_type": "recurring", "retry_count": 0}
+    result = run(stripped, "insufficient_funds")
+    assert not result.allowed
+    assert result.action != decide.RETRY
+
+
+def test_the_guard_does_not_disturb_non_retry_actions():
+    # Scoped to retries. A dead instrument with no amount still gets its link — sending
+    # one is not a debit, so incomplete information is no reason to withhold it.
+    result = run(record(amount=None), "dead_instrument")
+    assert result.allowed
+    assert result.action == decide.SEND_LINK
+
+
+def test_every_committed_fixture_has_usable_afa_fields():
+    # Stops the tests above passing vacuously: if real records were unusable the whole
+    # batch would refuse and the headline would be zero.
+    fixtures = json.loads(
+        (Path(__file__).resolve().parent.parent / "fixtures" / "failed_payments.json").read_text()
+    )
+    assert fixtures
+    for rec in fixtures:
+        assert gate._has_usable_afa_fields(rec), rec["id"]
 
 
 def test_missing_or_unknown_error_reason_does_not_raise():

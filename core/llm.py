@@ -110,6 +110,12 @@ def classify_failure(record, categories, fallback="exhausted") -> dict:
     try:
         raw = complete(_CLASSIFY_SYSTEM, _classify_prompt(record))
     except Exception as exc:  # noqa: BLE001 - fail closed, never abort the batch
+        # Say so. Failing closed is right; doing it silently was not. On a keyless clone a
+        # cache miss made every ambiguous record default to `exhausted`, the run finished
+        # normally, metrics were written, and the only symptom was a slightly lower
+        # accuracy. A degraded run has to be visibly degraded.
+        print(f"[llm] classification unavailable for {record.get('id')} ({exc}); "
+              f"defaulting to {fallback!r} — this record was NOT classified")
         return {"category": fallback, "valid": False, "raw": f"<error: {exc}>"}
 
     label = raw.strip().lower().strip(".`'\"* \n")

@@ -87,6 +87,59 @@ def test_missing_credentials_degrade_to_simulation(monkeypatch):
     assert result["status"] == execute.LINK_SENT
 
 
+def test_a_failed_real_call_is_never_reported_as_simulated(monkeypatch):
+    """The audit must not claim an action was simulated when a real request went out.
+
+    The try block used to wrap the call AND the response handling, so a read timeout
+    after Razorpay had already created the link fell through to simulate() and wrote
+    `simulated: true` with a fabricated plink_SIM reference. A trail that asserts a real
+    action was fake is worse than one that admits it does not know.
+    """
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_dummy")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "dummy")
+
+    def timeout(*_args, **_kwargs):
+        raise TimeoutError("read timed out waiting for the response")
+
+    monkeypatch.setattr(execute, "razorpay_testmode_create_link", timeout)
+    result = execute.execute(
+        RECORD, "dead_instrument", gate_result(decide.SEND_LINK), use_real_api=True
+    )
+    assert result["status"] == execute.UNVERIFIED
+    assert result["simulated"] is False
+    assert result["provider_ref"] is None
+    assert "unknown" in result["detail"]
+
+
+def test_an_unrecognised_response_is_also_unverified(monkeypatch):
+    # The request succeeded, so a link almost certainly exists even though we cannot name
+    # it. Claiming simulation here would be the same lie in a different shape.
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_dummy")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "dummy")
+    monkeypatch.setattr(execute, "razorpay_testmode_create_link", lambda _r: {"unexpected": 1})
+    result = execute.execute(
+        RECORD, "dead_instrument", gate_result(decide.SEND_LINK), use_real_api=True
+    )
+    assert result["status"] == execute.UNVERIFIED
+    assert result["simulated"] is False
+
+
+def test_a_successful_real_call_is_marked_real(monkeypatch):
+    # The mirror of the two above — without it they would pass on a function that always
+    # returned UNVERIFIED.
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_dummy")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "dummy")
+    monkeypatch.setattr(
+        execute, "razorpay_testmode_create_link", lambda _r: {"id": "plink_FAKE123"}
+    )
+    result = execute.execute(
+        RECORD, "dead_instrument", gate_result(decide.SEND_LINK), use_real_api=True
+    )
+    assert result["status"] == execute.LINK_SENT
+    assert result["simulated"] is False
+    assert result["provider_ref"] == "plink_FAKE123"
+
+
 def test_simulated_run_makes_no_api_call_by_default(monkeypatch):
     # use_real_api defaults to False, so a plain batch run never reaches the network.
     def explode(*_args, **_kwargs):

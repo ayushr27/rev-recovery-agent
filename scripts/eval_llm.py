@@ -83,8 +83,19 @@ def main():
     results = [(case, llm.classify_failure(stripped[case["id"]], diagnose.CATEGORIES))
                for case in cases]
 
+    # Errored calls never reach the cache, so cache growth alone counted them as hits and
+    # printed "N served from cache, 0 live" on a keyless clone where every answer was an
+    # exception fallback. Count them separately — this line is a provenance claim, and it
+    # must not be confidently wrong in exactly the case that matters.
+    errored = [c for c, v in results if v["raw"].startswith("<error:")]
     served_live = len(llm._load_cache()) - cached_before
-    print(f"  cache            {len(cases) - served_live} served from cache, {served_live} live")
+    from_cache = len(cases) - served_live - len(errored)
+    print(f"  cache            {from_cache} served from cache, {served_live} live, "
+          f"{len(errored)} FAILED")
+    if errored:
+        print("  WARNING          those answers are not model output — the calls failed")
+        print("                   and fell back to the default label, so the accuracy")
+        print("                   below is meaningless until the cache or key is fixed.")
     print()
 
     correct = [(c, v) for c, v in results if v["category"] == c["_ground_truth_category"]]

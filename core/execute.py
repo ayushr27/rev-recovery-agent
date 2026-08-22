@@ -26,6 +26,7 @@ FAILED = "failed"
 LINK_SENT = "link_sent"
 ESCALATED = "escalated"
 NOT_ATTEMPTED = "not_attempted"  # the gate refused; nothing was fired
+UNVERIFIED = "unverified"  # a real request went out and its outcome is unknown
 
 
 def _roll(payment_id, salt):
@@ -116,15 +117,43 @@ def execute(record, category, gate_result, use_real_api=False):
     action = gate_result.action
 
     if use_real_api and action in (decide.SEND_LINK, decide.REQUIRES_AFA):
+        # Split deliberately at the moment a request could leave this process.
+        #
+        # Before it, failing means nothing was created and simulating is honest. After it,
+        # a timeout or a reset connection can mean the link EXISTS while we never saw the
+        # response — and the previous version caught both cases together, fell through to
+        # simulate(), and wrote `simulated: true` with a fabricated plink_SIM ref. An audit
+        # trail that asserts a real action was simulated is worse than one that says it
+        # does not know, so the unknown case now says so.
+        if not (os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET")):
+            print("[execute] no Razorpay credentials; nothing was sent, simulating instead")
+            return simulate(record, category, action)
+
         try:
             link = razorpay_testmode_create_link(record)
+        except Exception as exc:  # noqa: BLE001 - degrade rather than abort the batch
             return _result(
-                LINK_SENT,
-                "real Razorpay test-mode payment link created",
-                provider_ref=link["id"],
+                UNVERIFIED,
+                f"real Razorpay request sent but its outcome is unknown ({exc}); "
+                f"a payment link may exist — check the dashboard before re-running",
                 simulated=False,
             )
-        except Exception as exc:  # noqa: BLE001 - degrade rather than abort the batch
-            print(f"[execute] real Razorpay call unavailable ({exc}); simulating instead")
+
+        try:
+            provider_ref = link["id"]
+        except (KeyError, TypeError) as exc:
+            return _result(
+                UNVERIFIED,
+                f"Razorpay accepted the request but the response was unrecognised ({exc}); "
+                f"a payment link was probably created",
+                simulated=False,
+            )
+
+        return _result(
+            LINK_SENT,
+            "real Razorpay test-mode payment link created",
+            provider_ref=provider_ref,
+            simulated=False,
+        )
 
     return simulate(record, category, action)
