@@ -52,7 +52,7 @@ table is exact.
 ## Quick start
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate     # Python 3.10+ (verified on 3.14)
 pip install -r requirements.txt
 python run_batch.py
 ```

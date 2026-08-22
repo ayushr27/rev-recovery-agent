@@ -447,8 +447,9 @@ refusals clearly marked. Commit.
   stateless decision engine**. Idempotency is *the* scalability primitive for a payments
   system — it's what makes concurrency and retries safe — and we have it. "Too many
   requests" was never a logic problem; it's an I/O-layer problem the architecture already
-  isolates. Do NOT build a queue/DB/load system for the hackathon — it costs the deadline
-  and the gate (the actual differentiator) for infrastructure no one is grading.
+  isolates. Do NOT build a queue/DB/load system for the hackathon — it spends the deadline
+  and the gate (the actual differentiator) rebuilding well-understood infrastructure that
+  this architecture is already designed to accept unchanged.
 - Batch size is a parameter (Phase 5) — optionally show a 500-record run in the demo to
   visually confirm it handles volume, without any added infrastructure.
 - Record the demo: run the batch, show the number, then **deliberately show refusals** —
@@ -595,5 +596,5 @@ These address the ways this build most often fails. Each maps to a phase.
 - **Runs from a fresh clone (Phase 7):** commit fixtures, provide `.env.example`, keep
   README run steps current. Treat "clean run from fresh clone" as a hard gate, not polish.
 
-- **Hard stop Sept 3:** wrap by Sept 3 regardless of "one more feature." A polished-enough
-  submission plus resumed placement prep beats a perfect submission plus lost prep time.
+- **Hard stop Sept 3:** wrap by Sept 3 regardless of "one more feature." A finished,
+  well-verified submission beats a larger one still in motion at the deadline.

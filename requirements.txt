@@ -1,8 +1,12 @@
-# Standard library does most of the work. These are the only real dependencies.
-python-dotenv        # reads .env
-groq                 # LLM provider (lazily imported; only needed on a cache miss)
-razorpay             # test-mode payment links (lazily imported; only for --real-link)
-pytest               # tests
+# Python 3.10+ (built and verified on 3.14.2).
+#
+# Standard library does most of the work. These are the only real dependencies, and they
+# are pinned: the project's claim is that a fresh clone reproduces Rs 141,801.84 exactly,
+# and unpinned dependencies quietly put an expiry date on that.
+python-dotenv==1.2.3   # reads .env
+groq==1.6.0            # LLM provider (lazily imported; only needed on a cache miss)
+razorpay==2.0.1        # test-mode payment links (lazily imported; only for --real-link)
+pytest==9.1.1          # tests
 
 # Only if you set LLM_PROVIDER=gemini in .env:
 # google-generativeai
