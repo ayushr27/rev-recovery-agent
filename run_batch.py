@@ -24,8 +24,21 @@ STATE_PATH = Path(__file__).resolve().parent / config.RUN_STATE_PATH
 
 
 def load_state(resume):
+    """Load the run state. `--resume` carries per-payment reservations forward but
+    resets the global attempt budget.
+
+    The budget is documented in config.py as a cap "across a batch run", and both the
+    report and the demo read it that way. Carrying it forward instead made it a lifetime
+    cap: after two resumed 50-record runs it sat at 100/100, and every subsequent run
+    refused every payment as GLOBAL_BUDGET_EXHAUSTED — indistinguishable from the agent
+    working, which is exactly the kind of silently-wrong number this project exists to
+    avoid. Per-payment `attempts` and `actions` are NOT reset: those are the idempotency
+    reservations, and forgetting them would let an action double-fire.
+    """
     if resume and STATE_PATH.exists():
-        return json.loads(STATE_PATH.read_text())
+        state = json.loads(STATE_PATH.read_text())
+        state["global_actions"] = 0
+        return state
     return gate.new_state()
 
 
@@ -179,6 +192,14 @@ def main():
         help="create ONE real Razorpay test-mode payment link, for this payment id",
     )
     parser.add_argument(
+        "--now",
+        type=int,
+        metavar="EPOCH",
+        help="treat this Unix timestamp as the current time instead of the wall clock. "
+             "Makes --resume reproducible: cooling-off windows are measured against it, "
+             "so the same pair of runs gives the same refusals whenever you run them.",
+    )
+    parser.add_argument(
         "--inject-misdiagnosis",
         action="append",
         default=[],
@@ -220,7 +241,11 @@ def main():
 
     state = load_state(args.resume)
     audit.reset(audit_path)
-    now = int(time.time())
+    # The gate measures every cooling-off window against this one value. Left to the wall
+    # clock, a second `--resume` run more than two hours after the first lands in a NEW
+    # bank_downtime window and legitimately fires 14 actions — correct behaviour, but it
+    # turns the idempotency demo into its opposite without warning. --now pins it.
+    now = args.now if args.now is not None else int(time.time())
 
     entries = []
     for record in records:

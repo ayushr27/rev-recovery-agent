@@ -50,8 +50,17 @@ so there is no rate-limit or outage risk on stage.
    the one miss across all 30 and its named failure mode: the classifier reads
    "collections has stopped pursuing this" as a dead instrument. It degrades safely.
 
-8. **Idempotency.** `python run_batch.py --resume` → all 50 refused, 0 actioned. Same
-   payments, same window, nothing double-fired. This is the scalability primitive.
+8. **Idempotency.** Pin the clock on BOTH commands so the beat is reproducible:
+
+   ```bash
+   python run_batch.py            --now 1787380244
+   python run_batch.py --resume   --now 1787380244
+   ```
+
+   All 50 refused, 0 actioned — 38 duplicates, 12 on the retry cap. Same payments, same
+   window, nothing double-fired. This is the scalability primitive. (Without `--now`, a
+   gap of more than two hours reopens `bank_downtime`'s cooling-off window and 14 actions
+   correctly fire — see "Stopping rules" below before anyone asks.)
 9. **Volume.** `python run_batch.py --n 500` → the global budget halts the batch at 100
    actions and the report says so explicitly, rather than letting the lower rate read as
    failure.
@@ -69,35 +78,54 @@ it does — this file is what keeps fixture generation honest.
 
 | Beat                                                              | Payment id     | Notes |
 |---------------------------------------------------------------------|----------------|-------|
-| Successful recovery (recoverable → retry → captured)                | `pay_TEST00004`| `bank_downtime`, recurring, ₹4,492.68 → retried → `captured`. 20 of the batch recover. |
+| Successful recovery (recoverable → retry → captured)                | `pay_TEST00004`| `bank_downtime`, recurring, ₹4,492.68 → retried → `captured`. 21 of the batch recover. |
 | Dead-card retry refused (`dead_instrument`)                         | `pay_TEST00011`| `invalid_card`, retry_count=0. Gate must refuse any retry. |
 | AFA-threshold refusal (recoverable, `recurring`, > ₹15,000)          | `pay_TEST00003`| `insufficient_funds`, recurring, amount ₹87,970.25 (> 1,500,000 paise). 4 such records exist total. |
 | Graceful escalation (`exhausted` / retry cap hit)                   | `pay_TEST00006`| retry_count == MAX_RETRY_ATTEMPTS (3) already. |
 | LLM-resolved ambiguous case (rules returned `needs_llm`)             | `pay_TEST00024`| One of 4 atypical-signature records; ground truth `dead_instrument` (`authentication_failed`, source mismatched as `bank`), description-only signal. |
 
-## Refusals: which ones fire, and when
+## Stopping rules: which ones fire, and when
 
-Worth knowing before the demo — several gate bounds are deliberately *backstops* that
-never trigger in a clean run, because `decide()` already routes away from them. That is
-correct defence-in-depth, not dead code (every one is proven by a test in
-`tests/test_gate.py`), but it means the visible refusals depend on how you run it.
+**Say the three outcomes precisely — a judge will check.** The gate has three verdicts,
+and only one of them is a refusal:
 
-**A single fresh run** (`python run_batch.py`) shows:
-- 4 × `AFA_REQUIRED_ABOVE_THRESHOLD` — recurring debits above ₹15,000 converted to
-  `requires_afa` instead of silently retried. The strongest beat: domain knowledge,
-  not a generic guardrail.
-- 6 × escalation — `exhausted` payments handed to a human rather than retried.
+| Verdict | Meaning | On a fresh run |
+|---|---|---|
+| `REFUSE` | nothing fires | **0** — the report says `Refused by the gate  0` |
+| `CONVERT` | the retry is refused, but an auth link goes out | 4 × `AFA_REQUIRED_ABOVE_THRESHOLD` |
+| `ALLOW` | the action fires | 46, of which 6 are escalations to a human |
+
+So do **not** say "the fresh run shows six refusals". It shows zero refusals, four
+conversions and six escalations. AFA is a conversion precisely because the customer is not
+abandoned — the retry is blocked and an authentication link is sent instead. Escalation is
+an `ALLOW`: handing a payment to a human *is* the action.
+
+Several bounds are deliberately *backstops* that never trigger in a clean run, because
+`decide()` already routes away from them. That is defence in depth, not dead code — every
+one is proven by a test in `tests/test_gate.py` — but it means the visible refusals depend
+on how you run it.
 
 **A 500-record run** (`python run_batch.py --n 500 --no-llm`) shows the global budget
-firing: 400 × `GLOBAL_BUDGET_EXHAUSTED` once 100 actions are spent. The report flags
-this explicitly so the lower recovery rate reads as the bound working rather than the
-agent failing. A good answer to "what happens at volume?" — it stops, on purpose, and
-says so.
+firing: 400 × `GLOBAL_BUDGET_EXHAUSTED` once 100 actions are spent. The report flags this
+explicitly so the lower recovery rate reads as the bound working rather than the agent
+failing. A good answer to "what happens at volume?" — it stops, on purpose, and says so.
+Use `--no-llm`: at n=500 there are 40 ambiguous records and only 6 are in the committed
+cache, so a bare `--n 500` either makes 34 live API calls or silently defaults them.
 
-**Running it twice** (`python run_batch.py` then `python run_batch.py --resume`) shows
-the whole batch refuse: 38 × `DUPLICATE_ACTION_IN_WINDOW` and 12 × `RETRY_CAP_EXCEEDED`,
-0 actioned. This is the idempotency story made visible — the same payments, the same
-window, nothing double-fires.
+**Running it twice, with the clock pinned:**
+
+```bash
+python run_batch.py            --now 1787380244
+python run_batch.py --resume   --now 1787380244
+```
+
+38 × `DUPLICATE_ACTION_IN_WINDOW`, 12 × `RETRY_CAP_EXCEEDED`, 0 actioned. **Pass the same
+`--now` to both** — that is what makes the beat reproducible. Without it the second run
+uses the wall clock, and if more than two hours have passed, `bank_downtime`'s cooling-off
+window has expired and 14 actions legitimately fire instead. That is the gate working
+correctly (a new window is a new attempt, not a duplicate), but it is the opposite of the
+beat you meant to show. If asked, the honest claim is: *within the attempt window nothing
+double-fires, and the retry cap holds regardless of how long you wait.*
 
 `DEAD_INSTRUMENT_NEVER_RETRIED` and `GLOBAL_BUDGET_EXHAUSTED` do not fire naturally:
 `decide()` never proposes a retry for a dead instrument, and 50 payments never exhaust a

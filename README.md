@@ -69,7 +69,7 @@ a Groq (or Gemini) key and Razorpay **test-mode** credentials.
 | Command | What it shows |
 |---|---|
 | `python run_batch.py` | the headline run — recovery, AFA conversions, escalations |
-| `python run_batch.py --resume` | **the idempotency proof** — every action refused as a duplicate |
+| `python run_batch.py --resume --now <epoch>` | **the idempotency proof** — pass the same `--now` as the first run; all 50 refused |
 | `python run_batch.py --n 500` | volume, and the global budget correctly halting the batch |
 | `python run_batch.py --real-link pay_TEST00011` | creates one **real** Razorpay test-mode payment link |
 | `python run_batch.py --no-llm` | rules only, no model involved |
@@ -227,8 +227,19 @@ or `--resume` is refused outright.
 
 Each action carries `hash(payment_id + action_type + attempt_window)`, shown in the audit
 trail. A boolean "already tried" cannot distinguish a legitimate later attempt from a
-duplicate of the current one; a windowed key can. Run the batch twice and the second pass
-refuses all 50 actions — 38 as duplicates, 12 on the retry cap — with nothing double-fired.
+duplicate of the current one; a windowed key can.
+
+```bash
+python run_batch.py            --now 1787380244
+python run_batch.py --resume   --now 1787380244   # 38 duplicates, 12 retry cap, 0 actioned
+```
+
+**Within the attempt window, nothing double-fires.** The window is the point: run the
+second pass a few hours later without pinning the clock and some actions legitimately do
+fire again — `bank_downtime` has a two-hour cooling-off, and a new window is a new attempt,
+not a duplicate. The retry cap still holds throughout. `--now` pins the clock so the demo
+reproduces the same 38/12 split whenever you run it, instead of depending on how long you
+waited between the two commands.
 
 ---
 

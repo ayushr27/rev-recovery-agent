@@ -12,9 +12,12 @@ Three deliberate choices about honesty:
 2. Diagnosis accuracy is reported alongside the recovery rate, always. A recovery rate
    on its own is untrustworthy: a misclassification silently moves a payment between
    the recoverable and dead buckets and distorts the very denominator above.
-3. AFA-gated payments are broken out. They are recoverable and were deliberately not
-   retried, so leaving them inside the plain rate would read as agent failure when it
-   is regulatory compliance.
+3. AFA-gated payments are broken out — as a separate count and a separate rate, but they
+   STAY IN the headline denominator. They are recoverable and were deliberately not
+   retried, so counting them as plain misses reads as agent failure when it is regulatory
+   compliance. Excluding them entirely would be the opposite error: 21/28 = 75.0% is a
+   flattering number that quietly drops four real payments the agent did not recover.
+   Both are printed. The headline stays the conservative one, 21/32 = 65.6%.
 """
 
 import json
@@ -23,6 +26,7 @@ from pathlib import Path
 
 import config
 from core import decide, execute, gate
+from report import stats
 
 ACTION_APPROPRIATE_FOR_DEAD = frozenset({decide.SEND_LINK, decide.ESCALATE, decide.REQUIRES_AFA})
 
@@ -136,6 +140,16 @@ def render(data):
         "                            auth link sent instead of a silent retry)",
     ]
 
+    # Stated both ways on purpose. The headline keeps AFA payments in the denominator —
+    # they were recoverable and are not recovered yet. Reporting only the flattering
+    # figure would be exactly the denominator-shopping this report exists to avoid.
+    pursuable = data["recoverable"] - data["afa_gated"]
+    if pursuable > 0 and data["afa_gated"]:
+        lines.append(
+            f"  excluding AFA-gated   {data['recovered']} of {pursuable} "
+            f"({data['recovered'] / pursuable:.1%}) — quoted for context, NOT the headline"
+        )
+
     if data["budget_exhausted"]:
         lines += [
             "",
@@ -144,17 +158,25 @@ def render(data):
             "the agent failing to recover — raise config.GLOBAL_ATTEMPT_BUDGET to lift it.",
         ]
 
+    # Every accuracy carries its 95% Wilson interval. A bare percentage over a handful of
+    # records invites a confidence the sample cannot support: the LLM bucket is 3 of 4,
+    # which reads as "75%" and is really [30%, 95%] — an interval so wide it says almost
+    # nothing. Printing it is the honest move, and it is why report/stats.py exists.
+    correct_total = data["total"] - data["misclassified"]
     lines += [
         "",
         "-- Diagnosis (shown alongside recovery, never on its own) ------------",
         f"Overall accuracy        {data['diagnosis_accuracy']:.1%}  "
         f"({data['misclassified']} misclassified)",
+        f"                        {stats.format_interval(correct_total, data['total'])}",
     ]
 
     for source, bucket in sorted(data["diagnosis_by_source"].items()):
         rate = bucket["correct"] / bucket["total"] if bucket["total"] else 0.0
+        low, high = stats.wilson_interval(bucket["correct"], bucket["total"])
         lines.append(
             f"  via {source:<20} {bucket['correct']}/{bucket['total']} correct ({rate:.0%})"
+            f"   95% CI [{low:.1%}, {high:.1%}]"
         )
 
     lines += [

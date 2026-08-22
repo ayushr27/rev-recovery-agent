@@ -194,10 +194,10 @@ See plan.md for the full phase plan. This file tracks STATE.
 | detect.py            | implemented  | load_failures() + load_ground_truth() (metrics)   |
 | diagnose.py          | implemented  | rules table; returns needs_llm for the tail       |
 | decide.py            | implemented  | 4-category table; fails closed on unknown         |
-| gate.py              | implemented  | 6 bounds, structured reasons; pure, 33 tests pass |
+| gate.py              | implemented  | 7 bounds, structured reasons; pure, 33 tests pass |
 | execute.py           | implemented  | seeded outcomes + real Razorpay test-mode path    |
 | explain.py           | implemented  | LLM rationale, deterministic template fallback    |
-| audit.py             | implemented  | JSONL trail, 14 fields per decision               |
+| audit.py             | implemented  | JSONL trail, 16 fields per decision               |
 | metrics.py           | implemented  | honest denominator + safety + budget flag         |
 | run_batch.py         | implemented  | full loop incl. LLM tail, --n, metrics             |
 | config.py            | implemented  | all Phase 0 constants + runtime file paths        |
@@ -237,16 +237,16 @@ See plan.md for the full phase plan. This file tracks STATE.
 ## How to run (keep current as it changes)
 - `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
 - Copy `.env.example` to `.env` and fill in keys.
-- Phase 0 sanity check (once keys are set): a short script calling
-  `core.llm.complete("You are terse.", "Say OK")` twice — second call should hit
-  `llm_cache.json` with no API call.
+- (`scripts/check_llm.py`, the Phase 0 cache sanity check, was DELETED 2026-08-22 — it
+  had no `sys.path` bootstrap so it never ran, and its probe response is the stray `"OK"`
+  entry sitting in the committed cache. `tests/test_llm.py` covers caching properly.)
 - Regenerate fixtures: `python fixtures/generate_fixtures.py` (add `--n 500` to scale).
 - Phase 2 check: `python scripts/check_diagnose.py` — prints the confusion count and
   exits non-zero if any record is misclassified, any eval field leaks, or the
   needs_llm tail is not exactly 4.
-- Tests: `pytest tests/ -q` (132 tests: decide, seven gate bounds, execution honesty,
+- Tests: `pytest tests/ -q` (136 tests: decide, seven gate bounds, execution honesty,
   LLM containment + caching + explain fallback, fault injection, metrics arithmetic,
-  Wilson intervals, eval-set integrity).
+  Wilson intervals, eval-set integrity, run-state resume semantics).
 - LLM evaluation: `python scripts/eval_llm.py --split heldout` (or `dev` / `all`).
   Exits non-zero only if the SET is invalid, never on low accuracy.
 - Fault injection demo: `python run_batch.py --inject-misdiagnosis pay_TEST00011=bank_downtime`
