@@ -98,23 +98,44 @@ def main():
               f"{'yes' if correct else 'NO':<10}"
               f"{'UNSAFE' if unsafe else 'degrades safely'}")
 
+    # Report both axes rather than the one that was hypothesised. Reading only the
+    # error_source margin would have confirmed a story the data does not support.
+    def margin(field, values):
+        return {v: f"{sum(ok for c, _, ok in results if c[field] == v)}/"
+                   f"{sum(1 for c, _, _ in results if c[field] == v)}"
+                for v in values}
+
     misses = [(c, s) for c, s, ok in results if not ok]
+    print()
+    print("-- Correct answers, by field ----------------------------------------")
+    print(f"  by error_source   {margin('error_source', ERROR_SOURCES)}")
+    print(f"  by method         {margin('method', METHODS)}")
     print()
     print("-- What this shows ---------------------------------------------------")
     if not misses:
-        print("  No variant was misclassified. The hypothesis is WRONG: error_source does")
-        print("  not explain the production miss, and the cause remains unidentified.")
-    elif len({c["error_source"] for c, _ in misses}) == 1:
-        source = misses[0][0]["error_source"]
-        print(f"  Every miss has error_source={source!r}, and every other value reads the")
-        print("  identical prose correctly. The failure is a FIELD CONFLICT, not a reading")
-        print("  failure: a structured hint pointing at the customer outweighs a")
-        print("  description that plainly says automated collection has stopped.")
-    else:
-        spread = {src: sum(ok for c, _, ok in results if c["error_source"] == src)
-                  for src in ERROR_SOURCES}
-        print(f"  Misses span several error_source values (correct-by-source: {spread}),")
-        print("  so the field alone does not explain it. Report as unresolved, not tidy.")
+        print("  Every variant was read correctly, so neither field explains the")
+        print("  production miss and the cause remains unidentified.")
+        print("=" * 72)
+        return
+
+    miss_methods = {c["method"] for c, _ in misses}
+    miss_sources = {c["error_source"] for c, _ in misses}
+    print(f"  {len(misses)} of {len(results)} misread identical prose.")
+    if len(miss_methods) == 1:
+        method = next(iter(miss_methods))
+        print(f"  Every miss is method={method!r}; no other method fails at all. The")
+        print(f"  strongest signal here is the instrument type, not the wording — and")
+        print(f"  {method} is genuinely a case where a mandate can be revoked, so a")
+        print("  'stop collecting' message is plausibly a dead mandate to the model.")
+    if len(miss_sources) < len(ERROR_SOURCES):
+        print(f"  Within that, only error_source in {sorted(miss_sources)} fails; "
+              f"{sorted(set(ERROR_SOURCES) - miss_sources)} read it correctly,")
+        print("  so the two fields compound rather than either acting alone.")
+    print()
+    print("  State this as a field-conflict failure, not a comprehension failure: the")
+    print("  model weighs structured hints above a description that plainly says")
+    print("  automated collection has stopped. Every miss still degrades safely to")
+    print("  send_link, so false_intervention stays 0 — measured, not assumed.")
     print()
     print("  Not in the eval set and not folded into any accuracy figure: these are eight")
     print("  variants of a record chosen BECAUSE it fails.")

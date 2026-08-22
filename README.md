@@ -194,11 +194,27 @@ Three caveats, because a clean score deserves more scepticism than a messy one:
    stronger claim than that, and the interval is printed so nobody has to take the point
    estimate at face value.
 
-**The one failure mode, named.** The single miss across all 30 (`pay_EVAL00025`) reads a
-collections hand-off as `dead_instrument` when the truth is `exhausted` — the same
-direction as the production miss. The classifier hears *"we have stopped pursuing this"*
-and concludes *"the instrument is dead."* Both instances degrade safely: `escalate`
-becomes `send_link`, so nothing touches a live instrument and `false_intervention` stays
+**The one failure mode, named — and then corrected.** The obvious reading is that the
+classifier hears *"we have stopped pursuing this"* and concludes *"the instrument is
+dead."* That reading is wrong, and the eval set disproves it: `pay_EVAL00029` and
+`pay_EVAL00004` use the same collections language and are both classified correctly.
+
+So `scripts/probe_classifier.py` holds the description of the failing record fixed and
+varies only `error_source` and `method` — eight variants, ground truth `exhausted` for
+all of them, labels committed before the first run:
+
+```
+by error_source  {customer 1/2, gateway 1/2, business 2/2, bank 2/2}
+by method        {upi 2/4, card 4/4}
+```
+
+**Every `card` variant is read correctly; both failures are `upi`.** The driver is the
+instrument type, compounded by `error_source` — not the wording. That is defensible
+behaviour rather than a comprehension failure: a UPI mandate genuinely can be revoked, so
+"we have stopped collecting" is plausibly a dead mandate. Call it a **field conflict** —
+structured hints outweighing an explicit description. Both instances degrade safely:
+`escalate` becomes `send_link`, so nothing touches a live instrument and
+`false_intervention` stays
 0. A characterised, contained error is worth more than an uncharacterised clean sheet.
 
 **The prompt has not been tuned.** Not once, in either direction. Editing it to fix a

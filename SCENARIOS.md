@@ -62,8 +62,16 @@ so there is no rate-limit or outage risk on stage.
 7. **How good is the LLM, actually?** `python scripts/eval_llm.py --split heldout` →
    22/22 on the held-out set, 95% CI [85.1%, 100%], zero unsafe errors. Contrast with
    3/4 on production, whose interval is [30%, 95%] — a number worth nothing. Volunteer
-   the one miss across all 30 and its named failure mode: the classifier reads
-   "collections has stopped pursuing this" as a dead instrument. It degrades safely.
+   the one miss across all 30 and its failure mode — but state it correctly. The obvious
+   story ("it reads collections language as a dead instrument") is wrong, and our own eval
+   set disproves it: two held-out cases use that same language and are classified fine.
+
+   `python scripts/probe_classifier.py` holds the description fixed and varies only
+   `error_source` and `method`: **all four `card` variants are correct, both failures are
+   `upi`.** It is a field conflict — the instrument type outweighs an explicit description
+   — and it is defensible, since a UPI mandate really can be revoked. Every variant
+   degrades safely to `send_link`. Saying "we localised it to a field, and here is the
+   ablation" is a far stronger answer than naming a vague tendency.
 
 8. **Idempotency.** Pin the clock on BOTH commands so the beat is reproducible:
 

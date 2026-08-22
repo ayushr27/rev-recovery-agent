@@ -119,6 +119,21 @@ See plan.md for the full phase plan. This file tracks STATE.
   to stop pursuing ("collections has suspended billing") as dead_instrument rather than
   exhausted. Seen in pay_EVAL00025 and pay_TEST00036. Both degrade safely — escalate
   becomes send_link — so unsafe errors are 0. Characterised and contained, not fixed.
+- 2026-08-22: **CORRECTION to the entry above — that description was wrong, and the eval
+  set had already disproved it.** `pay_EVAL00029` and `pay_EVAL00004` use the same
+  collections language and are both classified CORRECTLY, so prose was never the
+  discriminator. `scripts/probe_classifier.py` holds pay_TEST00036's description fixed and
+  varies only `error_source` and `method` (8 variants, ground truth `exhausted` for all,
+  labels committed before the first run). Result: **all four `card` variants correct; the
+  two failures are both `upi`, and within upi only error_source customer/gateway fail —
+  business and bank read the identical prose correctly.** So the driver is the instrument
+  type, compounded by error_source, not the wording. That is defensible model behaviour:
+  a UPI mandate genuinely can be revoked, so "we have stopped collecting" is plausibly a
+  dead mandate. State it as a **field-conflict** failure — structured hints outweighing an
+  explicit description — never as a comprehension failure. My first hypothesis (that
+  `error_source: customer` alone explained it) was refuted by the ablation; the probe
+  prints both field margins now so a single-axis reading cannot confirm a tidier story
+  than the data supports. All 8 degrade safely to send_link; false_intervention stays 0.
 - 2026-08-22: **The explain prompt was changed and the cache regenerated (50 live calls).**
   This is the ONE prompt that may be edited; `llm._CLASSIFY_SYSTEM` stays frozen and is now
   hash-pinned by `tests/test_headline.py`. Reason: 9 of 50 rationales ended in circular
