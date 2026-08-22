@@ -19,14 +19,43 @@ so there is no rate-limit or outage risk on stage.
    one-time records above ₹15,000 correctly pass straight through.
 5. **Refusal #2 — graceful escalation** (`pay_TEST00006`). At the retry cap, handed to a
    human rather than retried.
-6. **Idempotency.** `python run_batch.py --resume` → all 50 refused, 0 actioned. Same
+6. **Both sides of the safety net.** The strongest two minutes of the demo. Say first
+   that the gate trusts the diagnosis, so a wrong label is the real risk — then show
+   what happens when you force one:
+
+   ```bash
+   python run_batch.py --inject-misdiagnosis pay_TEST00011=bank_downtime   # REFUSED
+   python run_batch.py --inject-misdiagnosis pay_TEST00024=bank_downtime   # retry FIRES
+   ```
+
+   Same forced fault, same category, two genuinely dead cards. `pay_TEST00011` carries
+   `error_reason: invalid_card`, so the gate re-derives that from the record and refuses
+   with `DEAD_INSTRUMENT_EVIDENCE_IN_RECORD` no matter what it was labelled.
+   `pay_TEST00024` says it only in prose — and it gets retried and reports `captured`.
+
+   Show the second one. It is the boundary of the safety net, stated by us rather than
+   discovered by a judge, and the honest framing is: *the gate independently re-derives
+   the evidence that is machine-readable; it cannot read prose, so that residual risk is
+   measured instead — `false_intervention` after the fact, and `eval_llm.py` for how
+   often the classifier is wrong to begin with.*
+
+   Both runs are visibly demonstrations: separate audit file, no metrics computed, no
+   state persisted, and `metrics.report()` refuses to score them at all.
+
+7. **How good is the LLM, actually?** `python scripts/eval_llm.py --split heldout` →
+   22/22 on the held-out set, 95% CI [85.1%, 100%], zero unsafe errors. Contrast with
+   3/4 on production, whose interval is [30%, 95%] — a number worth nothing. Volunteer
+   the one miss across all 30 and its named failure mode: the classifier reads
+   "collections has stopped pursuing this" as a dead instrument. It degrades safely.
+
+8. **Idempotency.** `python run_batch.py --resume` → all 50 refused, 0 actioned. Same
    payments, same window, nothing double-fired. This is the scalability primitive.
-7. **Volume.** `python run_batch.py --n 500` → the global budget halts the batch at 100
+9. **Volume.** `python run_batch.py --n 500` → the global budget halts the batch at 100
    actions and the report says so explicitly, rather than letting the lower rate read as
    failure.
-8. **The real object.** Show `plink_TSNNNlcJUtCEV6` (below) — a genuine Razorpay
-   test-mode payment link. Pre-captured; do not depend on a live call on stage.
-9. **The UI**, if there is time: `cd app && npm run dev`. Refusals are colour-coded.
+10. **The real object.** Show `plink_TSNNNlcJUtCEV6` (below) — a genuine Razorpay
+    test-mode payment link. Pre-captured; do not depend on a live call on stage.
+11. **The UI**, if there is time: `cd app && npm run dev`. Refusals are colour-coded.
 
 If asked "what about high load?": the decision core is pure and idempotent, so it
 parallelises and replays safely; scaling is an I/O-layer swap, deliberately not built.
@@ -71,6 +100,12 @@ window, nothing double-fires.
 `DEAD_INSTRUMENT_NEVER_RETRIED` and `GLOBAL_BUDGET_EXHAUSTED` do not fire naturally:
 `decide()` never proposes a retry for a dead instrument, and 50 payments never exhaust a
 100-action budget. Both are covered by tests.
+
+`DEAD_INSTRUMENT_EVIDENCE_IN_RECORD` also never fires on honest data — verified at
+n=50, 500 and 5000 — because any record carrying an explicit dead-instrument reason is
+already routed to `send_link` before the gate sees it. It exists for the case where the
+classification path is wrong, and `--inject-misdiagnosis` is how you show it working
+(beat 6).
 
 ## Real Razorpay test-mode object
 

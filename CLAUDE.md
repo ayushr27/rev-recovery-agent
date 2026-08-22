@@ -90,6 +90,35 @@ See plan.md for the full phase plan. This file tracks STATE.
 - 2026-08-21: Added `config.DEFAULT_COOLING_OFF_HOURS = 24` for categories absent from
   COOLING_OFF_HOURS (dead_instrument, exhausted) — needed so their actions still get an
   idempotency window rather than being re-firable at will.
+- 2026-08-22: **The gate could not catch a misdiagnosis.** Rule 1 keyed off the diagnosed
+  category, so a wrong label bypassed it entirely — verified by injecting one. Added rule
+  1b, which re-derives dead-instrument evidence from the RECORD. Never say "the gate
+  catches misdiagnosis": it re-derives the machine-readable evidence only, and cannot see
+  evidence that exists solely in error_description. That limit is asserted by
+  test_evidence_check_cannot_see_prose_only_evidence and shown live in demo beat 6.
+- 2026-08-22: `config.HARD_DEAD_INSTRUMENT_REASONS` **duplicates** diagnose.REASON_RULES
+  deliberately. Do NOT refactor it into an import — the regression it guards against is
+  someone editing REASON_RULES, and importing would delete the check at the same moment.
+  A drift test in test_gate.py keeps them in step on purpose rather than by accident.
+- 2026-08-22: Fault-injected runs are demonstrations, never measurements. Containment is
+  layered: separate audit file, no metrics computed, no state persisted, source
+  "injected_fault", a per-row injected_fault field that is null on honest rows, loud
+  banners, and metrics.report() raises on tampered input so the guarantee does not depend
+  on run_batch staying correct. Injection with --real-link or --resume is refused.
+- 2026-08-22: **eval_llm.py has no accuracy threshold, on purpose.** It exits non-zero on
+  integrity violations only. A pass/fail bar on accuracy is the pressure that produces
+  tuning against the eval set. It writes no results file either — stdout only — so no
+  figure can go stale in an artifact while the README says something else.
+- 2026-08-22: **The classify prompt is frozen.** Primary reason: editing it to fix a known
+  miss is tuning against the test set. Mechanical reason, equally binding: llm.complete()
+  keys the cache on sha256(system + user), so one character voids all four production
+  cache entries — on a keyless clone complete() then raises, classify_failure() falls back
+  to exhausted, two payments stop retrying, and the headline silently changes. eval_llm.py
+  prints the prompt hash so any change visibly invalidates every quoted figure.
+- 2026-08-22: Known LLM failure mode, measured not guessed: it reads a business decision
+  to stop pursuing ("collections has suspended billing") as dead_instrument rather than
+  exhausted. Seen in pay_EVAL00025 and pay_TEST00036. Both degrade safely — escalate
+  becomes send_link — so unsafe errors are 0. Characterised and contained, not fixed.
 - 2026-08-21: UI is Next.js **16.3.2** / React **19.2.8** (checked against npm, not
   assumed). Scaffolded with `create-next-app --empty --no-tailwind --src-dir`. NOTE:
   Next 16 generates a global `LayoutProps<"/">` type for the root layout — do not
@@ -173,10 +202,14 @@ See plan.md for the full phase plan. This file tracks STATE.
   since it already lives at the repo root.
 - Razorpay test-mode key was added to `.env` but not yet exercised (that's Phase 4's
   real test-mode payment-link call, not a Phase 0/1 concern).
-- LLM diagnosis accuracy is 3/4 on a sample of FOUR. That is a meaningless denominator
-  statistically — do not quote "75% LLM accuracy" as though it were measured. Say
-  "3 of the 4 ambiguous records" and note the sample size. Same caution applies to the
-  98% overall figure, which is dominated by the 46 rules-resolved records.
+- LLM accuracy is now measured on a held-out set: 22/22, 95% CI [85.1%, 100%]; 29/30
+  across all splits. Quote the INTERVAL, never the bare 100% — 22 observations cannot
+  support a claim stronger than "at least 85%". The 98% headline figure remains dominated
+  by the 46 rules-resolved records and still should not be read as an LLM result.
+- The eval set may be EASIER than production: it contains nothing as hard as
+  pay_TEST00036, the one production record still misclassified. Worth saying aloud rather
+  than letting 22/22 imply the classifier is solved. Adding harder cases would be the
+  next honest step — but author and label them before running anything, as before.
 - The simulated success rates (bank_downtime 0.75, insufficient_funds 0.45) are
   plausible guesses, NOT measured from real data. The recovery rate inherits that
   assumption — say so in the README rather than implying it is an empirical result.
@@ -202,8 +235,13 @@ See plan.md for the full phase plan. This file tracks STATE.
 - Phase 2 check: `python scripts/check_diagnose.py` — prints the confusion count and
   exits non-zero if any record is misclassified, any eval field leaks, or the
   needs_llm tail is not exactly 4.
-- Tests: `pytest tests/ -q` (87 tests: decide, six gate bounds, execution honesty,
-  LLM containment + caching + explain fallback, metrics arithmetic).
+- Tests: `pytest tests/ -q` (132 tests: decide, seven gate bounds, execution honesty,
+  LLM containment + caching + explain fallback, fault injection, metrics arithmetic,
+  Wilson intervals, eval-set integrity).
+- LLM evaluation: `python scripts/eval_llm.py --split heldout` (or `dev` / `all`).
+  Exits non-zero only if the SET is invalid, never on low accuracy.
+- Fault injection demo: `python run_batch.py --inject-misdiagnosis pay_TEST00011=bank_downtime`
+  (refused) vs `pay_TEST00024=bank_downtime` (retry fires — the documented limit).
 - Full batch: `python run_batch.py` (fresh state, LLM from cache, prints the report).
   - `--no-explain` skips LLM rationales (template fallback) for fast dev runs.
   - `--no-llm` skips the LLM entirely (rules only; needs_llm records escalate).
