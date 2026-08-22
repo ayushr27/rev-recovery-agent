@@ -106,6 +106,15 @@ export default function Home() {
           {rupees(metrics.afa_paise)} awaits customer authentication ({metrics.afa_gated}{" "}
           payments) and is not written off.
         </div>
+        {/* The figure above is simulated. Saying so on the artifact itself, rather than
+            only in the README, is the same honesty the rest of the project claims. */}
+        <div className="caveat">
+          <strong>Simulated outcomes.</strong> Retry success rates (75% bank downtime, 45%
+          insufficient funds) are plausible values, not measured from real data. At ±20% on
+          those rates the figure moves between ₹1,28,518 and ₹1,73,183; it cannot exceed
+          ₹2,21,677 because only 28 payments were ever allowed a retry. Run{" "}
+          <code>python scripts/analyze_value.py</code> for the full band.
+        </div>
       </section>
 
       <section className="strip">
@@ -117,6 +126,12 @@ export default function Home() {
         <Stat
           value={`${(metrics.diagnosis_accuracy * 100).toFixed(0)}%`}
           label="diagnosis accuracy"
+          note={`95% CI ${wilson(
+            metrics.total - metrics.misclassified,
+            metrics.total,
+          )} · ${metrics.diagnosis_by_source.rules?.correct ?? 0}/${
+            metrics.diagnosis_by_source.rules?.total ?? 0
+          } by rules`}
         />
         <Stat
           value={metrics.false_intervention}
@@ -133,7 +148,16 @@ export default function Home() {
         </div>
       )}
 
-      <div className="wrap">
+      {/* Both README and SCENARIOS promise "colour-coded" refusals; until now nothing on
+          the page said what the tints meant. */}
+      <div className="legend">
+        <span><i className="swatch refused" /> refused — nothing fired</span>
+        <span><i className="swatch converted" /> converted — retry blocked, auth link sent instead</span>
+        <span><i className="swatch escalated" /> escalated — handed to a human</span>
+        <span><i className="swatch allowed" /> allowed — the action fired</span>
+      </div>
+
+      <div className="wrap" tabIndex={0} role="region" aria-label="Per-payment audit trail">
         <table>
           <colgroup>
             <col className="c-payment" />
@@ -217,15 +241,31 @@ function Stat({
   value,
   label,
   alert = false,
+  note,
 }: {
   value: React.ReactNode;
   label: string;
   alert?: boolean;
+  note?: string;
 }) {
   return (
     <div className={`stat${alert ? " alert" : ""}`}>
       <div className="value">{value}</div>
       <div className="label">{label}</div>
+      {note && <div className="note-sm">{note}</div>}
     </div>
   );
+}
+
+// Wilson score interval — the same arithmetic as report/stats.py, so the page and the CLI
+// report never disagree. A bare "98%" invites a confidence the sample cannot support.
+function wilson(successes: number, n: number, z = 1.96) {
+  if (n <= 0) return "[0.0%, 100.0%]";
+  const p = successes / n;
+  const d = 1 + (z * z) / n;
+  const centre = p + (z * z) / (2 * n);
+  const margin = z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n));
+  const low = Math.max(0, (centre - margin) / d);
+  const high = Math.min(1, (centre + margin) / d);
+  return `[${(low * 100).toFixed(1)}%, ${(high * 100).toFixed(1)}%]`;
 }

@@ -44,6 +44,21 @@ so there is no rate-limit or outage risk on stage.
    Both runs are visibly demonstrations: separate audit file, no metrics computed, no
    state persisted, and `metrics.report()` refuses to score them at all.
 
+6.5. **What is the AI actually worth, and what does the number rest on?**
+   `python scripts/analyze_value.py` — the two questions a sharp judge asks.
+
+   *"46 of 50 records never touch a model — is the AI decoration?"* Answer in rupees:
+   **₹12,183.03, 8.6% of the headline**, is recovered only because the ambiguous tail was
+   classified instead of escalated. Confirm live with `--no-llm`: 20 of 32, ₹1,29,618.81.
+   Volunteer that this is small. The 98% accuracy is a rules result and saying otherwise
+   claims a lookup table's work for the model.
+
+   *"Your success rates are made up."* Correct — so they are swept. ±20% moves the
+   headline between ₹1,28,518 and ₹1,73,183; the structural floor and ceiling are ₹0 and
+   ₹2,21,677.30. The ceiling is set by the **gate**, not the success rate: only 28 records
+   were ever allowed a retry. Say "read it as a point on a curve, not a measurement"
+   before anyone else does.
+
 7. **How good is the LLM, actually?** `python scripts/eval_llm.py --split heldout` →
    22/22 on the held-out set, 95% CI [85.1%, 100%], zero unsafe errors. Contrast with
    3/4 on production, whose interval is [30%, 95%] — a number worth nothing. Volunteer

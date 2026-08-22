@@ -75,6 +75,7 @@ a Groq (or Gemini) key and Razorpay **test-mode** credentials.
 | `python run_batch.py --no-llm` | rules only, no model involved |
 | `python run_batch.py --inject-misdiagnosis pay_TEST00011=bank_downtime` | forces a wrong diagnosis to show what the gate does about it |
 | `python scripts/eval_llm.py --split heldout` | measures the LLM on the held-out ambiguous set |
+| `python scripts/analyze_value.py` | what the LLM tail is worth in rupees, and how the headline moves if the assumed retry rates are wrong |
 | `pytest tests/ -q` | 132 tests — every stopping rule, execution honesty, LLM containment, fault injection, metric arithmetic |
 
 ### The UI
@@ -118,11 +119,48 @@ this holds even with a 100% success rate configured for `dead_instrument`.
 **The baseline is stated explicitly.** Without the agent nothing is recovered and the full
 ₹4,60,979.07 stays failed. The recovery is measured against that, not invented.
 
-**What is assumed rather than measured.** Retry outcomes are simulated, with success rates
-(75% for a transient bank outage, 45% for insufficient funds) chosen as plausible values —
-**not** derived from real data. The recovery figure inherits that assumption. What the
+**What is assumed rather than measured — and what that is worth.** Retry outcomes are
+simulated, with success rates (75% for a transient bank outage, 45% for insufficient funds)
+chosen as plausible values, **not** derived from real data. Rather than leave that as a
+caveat, the assumption is swept:
+
+```
+python scripts/analyze_value.py
+
+  assumed rates                 recovered             money
+  40% worse than assumed               11      Rs 80,555.24
+  20% worse                            18     Rs 128,518.50
+  as configured (headline)             21     Rs 141,801.84
+  20% better                           24     Rs 173,183.41
+
+  structural floor (0%)                 0           Rs 0.00
+  structural ceiling (100%)            28     Rs 221,677.30
+```
+
+**Read ₹1,41,801.84 as one point on that curve, not as a measurement.** The ceiling is set
+by the gate rather than by the success rate: only 28 records were ever allowed a retry, so
+no assumption about how well retries work can push the figure past ₹2,21,677.30. What the
 prototype demonstrates is the decision logic; the success rates stand in for a production
 feedback loop.
+
+### Does the LLM earn its place?
+
+A fair criticism of any "AI agent" is that the AI is decoration. Here it nearly is — 46 of
+50 records never reach a model. So the value is stated in rupees rather than asserted:
+
+| | Records | Recovered |
+|---|---|---|
+| Full run | 50 | 21 of 32 · **₹1,41,801.84** |
+| `--no-llm` (rules only) | 50 | 20 of 32 · ₹1,29,618.81 |
+
+**₹12,183.03 — 8.6% of the headline — exists only because the ambiguous tail was
+classified instead of escalated.** One payment, `pay_TEST00037`: the rules could not read
+it, the model called it `bank_downtime`, the retry was allowed and captured. Without the
+model it would have gone to a human queue.
+
+That is a small, honest number, and it is the right one to quote. The corollary matters as
+much: the 98% diagnosis accuracy is a **rules** result, and saying otherwise would be
+claiming the model's work for a lookup table.
 
 ### How good is the LLM, really?
 
@@ -315,6 +353,7 @@ report/stats.py        Wilson intervals, so no accuracy is a bare point estimate
 fixtures/              seeded generator + the committed 50-record batch
 eval/                  held-out ambiguous cases for measuring the LLM
 scripts/eval_llm.py    the LLM evaluation harness
+scripts/analyze_value.py  LLM contribution in rupees + headline sensitivity band
 app/                   Next.js single-page audit view
 tests/                 132 tests
 SCENARIOS.md           demo beats mapped to payment ids

@@ -189,6 +189,77 @@ tr.escalated {
   background: rgba(88, 166, 255, 0.07);
 }
 
+/* --- legend: the tints above mean nothing unless the page says so --- */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  margin-bottom: 0.75rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  flex: none;
+}
+
+.swatch.refused {
+  background: rgba(248, 81, 73, 0.5);
+}
+
+.swatch.converted {
+  background: rgba(210, 153, 34, 0.6);
+}
+
+.swatch.escalated {
+  background: rgba(88, 166, 255, 0.5);
+}
+
+.swatch.allowed {
+  background: var(--panel);
+}
+
+/* --- the headline is simulated; the page must say so where the number is --- */
+.caveat {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.caveat strong {
+  color: #e3c07b;
+}
+
+.caveat code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+
+/* Sub-label under a stat, e.g. the confidence interval beside an accuracy. */
+.note-sm {
+  color: var(--muted);
+  font-size: 0.68rem;
+  margin-top: 0.35rem;
+  line-height: 1.4;
+}
+
 /* Provider refs are long and have no spaces, so they must be allowed to break —
    nowrap here is what forced the table wider than its container. */
 .mono {
